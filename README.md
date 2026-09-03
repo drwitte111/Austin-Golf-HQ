@@ -95,28 +95,28 @@ look like a scorecard, sizes capped, course docs not client-writable), but anyon
 with the page can read and write any score row. Same trade LaManna-Big-Year
 makes.
 
-## Remaining setup
+## Live
 
-Already done: CLI installed, logged in, web app registered, config inlined.
+**https://drwitte111.github.io/Austin-Golf-HQ/**
 
-### 1. Create the Firestore database
+Setup is complete: web app registered, Firestore `(default)` database created in
+**us-central1** (Standard edition, Native mode), rules deployed, GitHub Pages
+serving `main` from the repo root. `.nojekyll` is committed so Pages serves the
+files as-is.
 
-[Firestore console](https://console.firebase.google.com/project/golf-hq/firestore)
-→ **Create database** → **us-central1** → **production mode**. This also enables
-the Cloud Firestore API, which cannot be turned on from the CLI. Until this is
-done the app runs but no scores save.
+### Deploying a change
 
-### 2. Push the security rules
+Push to `main`. Pages redeploys in under a minute and the ETag check pulls the
+new build onto phones automatically.
+
+Rules are the one thing `git push` does not deploy:
 
 ```bash
 firebase deploy --only firestore:rules
 ```
 
-### 3. Turn on GitHub Pages
-
-**Settings → Pages → deploy from branch → `main` / root**. Lands at
-`https://drwitte111.github.io/Austin-Golf-HQ/`. `.nojekyll` is committed so Pages
-serves the files as-is.
+Note that a fresh ruleset takes up to a minute to propagate — writes can come
+back `permission-denied` in the gap even when the rules are correct.
 
 ## Notes
 
