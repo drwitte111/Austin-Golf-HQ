@@ -587,6 +587,9 @@
     padding: 9px 8px; border-radius: 4px; font-size: 15px;
   }
   .srow.s4 { grid-template-columns: minmax(0,1fr) 52px 52px 56px; }
+  .srow.s2 { grid-template-columns: minmax(0,1fr) 68px; }
+  .pts-up { color: var(--light); }
+  .pts-down { color: #F0907E; }
   .srow > span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
   .srow > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .srow:nth-of-type(odd) { background: rgba(0,0,0,.18); }
@@ -733,9 +736,17 @@
 
     <div class="card">
       <h2>Standings</h2>
-      <div class="srow shead"><span>Player</span><span>W-L-P</span><span>Pts</span></div>
+      <div class="srow shead s2"><span>Player</span><span>W-L-P</span></div>
       <div id="standings"></div>
       <p class="muted hidden" id="standings-empty">No nine has finished yet.</p>
+    </div>
+
+    <div class="card">
+      <h2>Match play points</h2>
+      <p class="muted">A win is +1, a loss &minus;1, a push 0.</p>
+      <div class="srow shead"><span>Player</span><span>W-L-P</span><span>Pts</span></div>
+      <div id="mpoints"></div>
+      <p class="muted hidden" id="mpoints-empty">No nine has finished yet.</p>
     </div>
 
     <div class="card">
@@ -1263,9 +1274,9 @@ function tripRecords() {
   return rec;
 }
 
-/** A win is a point, a push is half. */
-const pointsOf = r => r.w + (r.p || 0) * 0.5;
-const fmtPoints = n => (n % 1 ? n.toFixed(1) : String(n));
+/** A win is +1, a loss -1, a push 0. */
+const pointsOf = r => r.w - r.l;
+const fmtPoints = n => (n > 0 ? '+' + n : String(n));
 
 /**
  * Skins for one nine: on each hole the outright lowest duo takes it. A hole is
@@ -1774,6 +1785,7 @@ function openStats() {
 
 function renderStats() {
   renderStandings();
+  renderPoints();
   renderStrokes();
   renderSkins();
   renderContestResults();
@@ -1809,21 +1821,44 @@ function nameCell(player, suffix) {
   return frag;
 }
 
-function renderStandings() {
+function recordRows() {
   const rec = tripRecords();
+  return allPlayers().map(p => ({ p: p, r: rec[p.id] || { w: 0, l: 0, p: 0 } }));
+}
+
+const wlp = r => r.w + '-' + r.l + '-' + (r.p || 0);
+const anyPlayed = rows => rows.some(x => x.r.w + x.r.l + x.r.p > 0);
+
+// Standings: the record on its own, most wins first.
+function renderStandings() {
   const host = $('standings');
   host.innerHTML = '';
-
-  const rows = allPlayers().map(p => ({ p: p, r: rec[p.id] || { w: 0, l: 0, p: 0 } }));
-  rows.sort((x, y) => pointsOf(y.r) - pointsOf(x.r) || x.r.l - y.r.l ||
+  const rows = recordRows();
+  rows.sort((x, y) => y.r.w - x.r.w || x.r.l - y.r.l ||
     String(x.p.name || '').localeCompare(String(y.p.name || '')));
-
-  $('standings-empty').classList.toggle('hidden',
-    rows.some(x => x.r.w + x.r.l + x.r.p > 0));
+  $('standings-empty').classList.toggle('hidden', anyPlayed(rows));
 
   for (const row of rows) {
-    host.appendChild(srow(
-      [nameCell(row.p), row.r.w + '-' + row.r.l + '-' + (row.r.p || 0), fmtPoints(pointsOf(row.r))],
+    host.appendChild(srow([nameCell(row.p), wlp(row.r)],
+      's2' + (row.p.id === playerId() ? ' me' : '')));
+  }
+}
+
+// Match play points: the same record scored +1 / -1 / 0, ordered on points.
+function renderPoints() {
+  const host = $('mpoints');
+  host.innerHTML = '';
+  const rows = recordRows();
+  rows.sort((x, y) => pointsOf(y.r) - pointsOf(x.r) || y.r.w - x.r.w ||
+    String(x.p.name || '').localeCompare(String(y.p.name || '')));
+  $('mpoints-empty').classList.toggle('hidden', anyPlayed(rows));
+
+  for (const row of rows) {
+    const pts = pointsOf(row.r);
+    const cell = document.createElement('span');
+    cell.textContent = fmtPoints(pts);
+    cell.className = pts > 0 ? 'pts-up' : pts < 0 ? 'pts-down' : '';
+    host.appendChild(srow([nameCell(row.p), wlp(row.r), cell],
       row.p.id === playerId() ? 'me' : ''));
   }
 }
