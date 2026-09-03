@@ -768,6 +768,15 @@
   .fwho { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fnth { text-align: right; color: var(--sand); font-weight: 700; font-variant-numeric: tabular-nums; }
 
+  .savebar {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,.12);
+  }
+  .savebar .muted { flex: 1; min-width: 0; font-size: 13px; }
+  .savebar .muted.dirty { color: var(--sand); font-weight: 600; }
+  .savebar .primary { flex: none; width: 132px; }
+
   .duo-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .duo-tag {
     flex: none; width: 62px;
@@ -999,6 +1008,10 @@
       <h2>Duos &amp; matchups</h2>
       <p class="muted">Partners hold for the whole day. Opponents can change at the turn.</p>
       <div id="matchup-editor"></div>
+      <div class="savebar">
+        <span class="muted" id="matchup-state">Saved</span>
+        <button class="primary" id="matchup-save" disabled>Save</button>
+      </div>
     </div>
 
     <div class="card">
@@ -2939,8 +2952,38 @@ function duoSelect(duos, value, onChange) {
   return sel;
 }
 
+// Edits are held locally until Save.
+//
+// Writing on every change meant each select re-sent the WHOLE duos array, read
+// from the last snapshot it had seen. Change two things quickly and the second
+// write carried a stale copy of the first, silently undoing it - which is why
+// entries did not always take.
+let draft = null;
+
+function working() {
+  return draft || state.schedule || {};
+}
+
+function beginEdit() {
+  if (!draft) draft = JSON.parse(JSON.stringify(state.schedule || {}));
+  return draft;
+}
+
+function markDirty() {
+  $('matchup-save').disabled = false;
+  $('matchup-state').textContent = 'Unsaved changes';
+  $('matchup-state').classList.add('dirty');
+}
+
+function markClean(text) {
+  draft = null;
+  $('matchup-save').disabled = true;
+  $('matchup-state').textContent = text || 'Saved';
+  $('matchup-state').classList.remove('dirty');
+}
+
 function currentDuos(dayId) {
-  const stored = ((state.schedule[dayId] || {}).duos || []).slice();
+  const stored = ((working()[dayId] || {}).duos || []).slice();
   while (stored.length < DUO_COUNT) stored.push({ p1: '', p2: '' });
   return stored.slice(0, DUO_COUNT).map(d => ({ p1: (d && d.p1) || '', p2: (d && d.p2) || '' }));
 }
@@ -2970,10 +3013,11 @@ function checkNine(matches) {
   return problems;
 }
 
-function renderMatchupEditor() {
+function renderMatchupEditor(force) {
   const host = $('matchup-editor');
-  // Rebuilding while a dropdown is open would close it mid-choice.
-  if (host.contains(document.activeElement)) return;
+  // A snapshot arriving mid-edit must not throw away what is being typed, and
+  // rebuilding while a dropdown is open would close it mid-choice.
+  if (!force && (draft || host.contains(document.activeElement))) return;
   host.innerHTML = '';
 
   for (const day of DAYS) {
@@ -2995,9 +3039,10 @@ function renderMatchupEditor() {
       const write = (slot, value) => {
         const next = currentDuos(day.id);
         next[i][slot] = value;
-        const patch = {};
-        patch[day.id] = { duos: next };
-        saveSchedule(patch);
+        const d = beginEdit();
+        d[day.id] = Object.assign({}, d[day.id], { duos: next });
+        markDirty();
+        renderMatchupEditor(true);
       };
 
       row.appendChild(tag);
@@ -3012,7 +3057,7 @@ function renderMatchupEditor() {
       nineHead.textContent = COURSES[segment.courseId].nines[segment.nine].title;
       host.appendChild(nineHead);
 
-      const stored = ((state.schedule[segment.id] || {}).matches || []).slice();
+      const stored = ((working()[segment.id] || {}).matches || []).slice();
       while (stored.length < 2) stored.push({ a: null, b: null });
 
       stored.slice(0, 2).forEach((m, mi) => {
@@ -3026,13 +3071,14 @@ function renderMatchupEditor() {
         const write = (slot, value) => {
           const next = stored.slice(0, 2).map(x => ({ a: x.a, b: x.b }));
           next[mi][slot] = value;
-          const patch = {};
+          const d = beginEdit();
           // Firestore rejects undefined, so an unset side is stored as null.
-          patch[segment.id] = { matches: next.map(x => ({
+          d[segment.id] = { matches: next.map(x => ({
             a: x.a === undefined ? null : x.a,
             b: x.b === undefined ? null : x.b
           })) };
-          saveSchedule(patch);
+          markDirty();
+          renderMatchupEditor(true);
         };
 
         row.appendChild(tag);
@@ -3058,12 +3104,31 @@ function renderMatchupEditor() {
   }
 }
 
+$('matchup-save').addEventListener('click', async () => {
+  if (!draft) return;
+  const btn = $('matchup-save');
+  btn.disabled = true;
+  $('matchup-state').textContent = 'Saving\u2026';
+  const payload = draft;
+  try {
+    // One write for the whole schedule, so nothing can half-land.
+    await setDoc(scheduleRef(), payload, { merge: true });
+    markClean('Saved');
+    renderMatchupEditor(true);
+  } catch (err) {
+    $('matchup-state').textContent = friendly(err);
+    $('matchup-state').classList.add('dirty');
+    btn.disabled = false;
+  }
+});
+
 function openAdmin() {
   if (!state.admin) return;
   buildAdminCourses();
   renderAdminRoster();
   renderContestEditor();
-  renderMatchupEditor();
+  markClean('Saved');
+  renderMatchupEditor(true);
   adminCourseId = null;
   $('admin-players-card').classList.add('hidden');
   showPage('page-admin');
