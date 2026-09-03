@@ -1554,6 +1554,8 @@ function subscribeGlobal() {
 // Only ever touches documents whose name matches your own, and only the old
 // p_-prefixed ids.
 const isLegacyId = id => /^p_/.test(id || '');
+const writtenAt = row => (row && row.updatedAt && row.updatedAt.seconds) || 0;
+const writtenLater = (a, b) => writtenAt(a) > writtenAt(b);
 let legacyAbsorbed = false;
 
 async function absorbLegacy() {
@@ -1565,9 +1567,12 @@ async function absorbLegacy() {
       const mineRow = roster(courseId).find(x => x.id === me) || {};
       for (const row of roster(courseId)) {
         if (!isLegacyId(row.id) || nameKey(row.name) !== me) continue;
-        // Anything already on the name-keyed row wins; the legacy row only
-        // fills holes it does not have.
-        const merged = Object.assign({}, row.scores || {}, mineRow.scores || {});
+        // Union of both cards, so no hole is dropped. Where the two disagree on
+        // the same hole, the more recently written document settles it rather
+        // than one side simply overwriting the other.
+        const merged = writtenLater(row, mineRow)
+          ? Object.assign({}, mineRow.scores || {}, row.scores || {})
+          : Object.assign({}, row.scores || {}, mineRow.scores || {});
         await setDoc(playerRef(courseId, me),
           { name: String(state.name).slice(0, 40), scores: merged }, { merge: true });
         await deleteDoc(playerRef(courseId, row.id));
@@ -1576,8 +1581,9 @@ async function absorbLegacy() {
     const mineDrinks = (state.drinks || []).find(x => x.id === me) || {};
     for (const row of state.drinks || []) {
       if (!isLegacyId(row.id) || nameKey(row.name) !== me) continue;
-      // Highest count per day, not the sum: the two documents are two views of
-      // the same person, so adding them would invent drinks.
+      // Highest count per day, not the sum. The two documents are two views of
+      // one person's tally, so 5 and 5 is five drinks, not ten - adding them
+      // would invent drinks that were never had.
       const days = Object.assign({}, mineDrinks.days || {});
       for (const key of Object.keys(row.days || {})) {
         days[key] = Math.max(days[key] || 0, row.days[key] || 0);
