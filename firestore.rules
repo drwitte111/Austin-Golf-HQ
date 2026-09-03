@@ -50,6 +50,25 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Drink counters, one document per person. Counts are stored per calendar
+    // day rather than reset at midnight: there is no server to run a reset, and
+    // a client-side one would only fire if somebody happened to have the app
+    // open. Rolling the date over does the same job and cannot be missed.
+    match /drinks/{playerId} {
+      allow read: if true;
+
+      allow create, update: if request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 40
+        && request.resource.data.days is map
+        && request.resource.data.days.size() <= 60
+        && (!('log' in request.resource.data.keys())
+            || (request.resource.data.log is list
+                && request.resource.data.log.size() <= 400));
+
+      allow delete: if true;
+    }
+
     // Nothing else in this project is used by the app.
     match /{document=**} {
       allow read, write: if false;

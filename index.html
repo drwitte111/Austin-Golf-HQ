@@ -631,6 +631,46 @@
   .contest-who.pending { color: var(--muted); font-weight: 400; }
   .contest-row select.pick { flex: none; width: 140px; }
 
+  /* BEVERAGE COUNTER */
+  .counter-card { text-align: center; }
+  .counter-label {
+    display: block; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .14em; color: var(--muted);
+  }
+  .counter { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 10px 0 4px; }
+  .counter strong { font-size: 54px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--sand); min-width: 76px; }
+  .cbtn {
+    width: 62px; height: 62px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.22); background: rgba(0,0,0,.28);
+    color: var(--cream); font-size: 28px; line-height: 1;
+  }
+  .cbtn:active { background: var(--green); border-color: var(--green); }
+  .cbtn:disabled { opacity: .35; }
+
+  .drow { display: grid; grid-template-columns: 88px minmax(0,1fr) 28px; align-items: center; gap: 8px; padding: 6px 0; }
+  .drow.me .dname { color: var(--light); font-weight: 700; }
+  .dname { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dbar { height: 10px; background: rgba(0,0,0,.28); border-radius: 5px; overflow: hidden; }
+  .dbar i { display: block; height: 100%; background: var(--green); border-radius: 5px; }
+  .dnum { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px; }
+
+  .clock { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
+  .chour { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+  .chour i { display: block; background: var(--green); border-radius: 2px 2px 0 0; min-height: 2px; }
+  .chour i.empty { background: rgba(255,255,255,.10); }
+  .chour span { font-size: 8px; color: var(--muted); text-align: center; margin-top: 3px; }
+
+  ol.feed { list-style: none; }
+  ol.feed li {
+    display: grid; grid-template-columns: 62px minmax(0,1fr) 34px;
+    align-items: center; gap: 8px; padding: 7px 8px; border-radius: 4px; font-size: 14px;
+  }
+  ol.feed li:nth-child(odd) { background: rgba(0,0,0,.18); }
+  ol.feed li.me { box-shadow: inset 0 0 0 1px var(--light); }
+  .ftime { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .fwho { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fnth { text-align: right; color: var(--sand); font-weight: 700; font-variant-numeric: tabular-nums; }
+
   .duo-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .duo-tag {
     flex: none; width: 62px;
@@ -699,6 +739,9 @@
         <button class="menu-btn" data-go="overview">
           <strong>Live Scorecard</strong><span>Everyone's cards, hole by hole</span>
         </button>
+        <button class="menu-btn" data-go="drinks">
+          <strong>Beverage Counter</strong><span>Tally the day&rsquo;s drinks</span>
+        </button>
         <button class="menu-btn" data-go="stats">
           <strong>Stats</strong><span>Standings, skins, contests</span>
         </button>
@@ -724,6 +767,49 @@
     </div>
     <div class="card">
       <p class="muted">Not built yet. This screen is a placeholder.</p>
+    </div>
+  </section>
+
+  <!-- BEVERAGE COUNTER -->
+  <section class="page" id="page-drinks">
+    <div class="topbar">
+      <button class="ghost" data-back>&larr; Menu</button>
+      <h2>Beverage Counter</h2>
+      <span class="who" id="drinks-day"></span>
+    </div>
+
+    <div class="card counter-card">
+      <span class="counter-label">Today</span>
+      <div class="counter">
+        <button class="cbtn" id="drink-minus" aria-label="One fewer drink">&minus;</button>
+        <strong id="drink-count">0</strong>
+        <button class="cbtn" id="drink-plus" aria-label="One more drink">+</button>
+      </div>
+      <p class="muted" id="drink-hint">Resets on its own at midnight Eastern.</p>
+    </div>
+
+    <div class="card">
+      <h2>Today</h2>
+      <div id="drinks-today"></div>
+      <p class="muted hidden" id="drinks-today-empty">Nobody has had one yet.</p>
+    </div>
+
+    <div class="card">
+      <h2>When they land</h2>
+      <p class="muted">The whole group&rsquo;s drinks today, by the hour.</p>
+      <div id="drinks-clock"></div>
+    </div>
+
+    <div class="card">
+      <h2>Latest</h2>
+      <ol class="feed" id="drinks-feed"></ol>
+      <p class="muted hidden" id="drinks-feed-empty">Nothing yet today.</p>
+    </div>
+
+    <div class="card">
+      <h2>By day</h2>
+      <div class="table-scroll" id="drinks-history"></div>
+      <p class="muted hidden" id="drinks-history-empty">No days recorded yet.</p>
     </div>
   </section>
 
@@ -802,16 +888,16 @@
     </div>
 
     <div class="card">
-      <h2>Edit a player's card</h2>
-      <p class="muted">Pick a course, then whose scores to change.</p>
-      <div class="menu-grid" id="admin-courses"></div>
-    </div>
-
-    <div class="card">
       <h2>Players</h2>
       <p class="muted">Everyone who has signed in. Removing someone clears them and their scores from both courses.</p>
       <ol class="admin-list" id="admin-roster"></ol>
       <p class="muted hidden" id="admin-roster-empty">Nobody has signed in yet.</p>
+    </div>
+
+    <div class="card">
+      <h2>Duos &amp; matchups</h2>
+      <p class="muted">Partners hold for the whole day. Opponents can change at the turn.</p>
+      <div id="matchup-editor"></div>
     </div>
 
     <div class="card">
@@ -820,10 +906,13 @@
       <div id="contest-editor"></div>
     </div>
 
+    <!-- The picker and the list it opens sit together: with other cards between
+         them, choosing a course scrolled the result off the bottom of a phone
+         and looked like nothing had happened. -->
     <div class="card">
-      <h2>Duos &amp; matchups</h2>
-      <p class="muted">Partners hold for the whole day. Opponents can change at the turn.</p>
-      <div id="matchup-editor"></div>
+      <h2>Edit a player's card</h2>
+      <p class="muted">Pick a course, then whose scores to change.</p>
+      <div class="menu-grid" id="admin-courses"></div>
     </div>
 
     <div class="card hidden" id="admin-players-card">
@@ -1392,6 +1481,9 @@ const state = {
   // page: the schedule is one small document and each roster is eight rows.
   schedule: {},
   rosters: {},
+  drinks: [],
+  drinkLocal: null,
+  drinkLog: null,
   courseId: null,
   course: null,
   holes: [],
@@ -1422,6 +1514,8 @@ function subscribeGlobal() {
     state.schedule = snap.exists() ? snap.data() : {};
     onLiveData();
   }, err => showError($('course-error'), friendly(err))));
+
+  subscribeDrinks();
 
   for (const courseId of Object.keys(COURSES)) {
     unsubGlobal.push(onSnapshot(playersRef(courseId), snap => {
@@ -1552,6 +1646,7 @@ for (const btn of document.querySelectorAll('.menu-btn')) {
     else if (btn.dataset.go === 'admin') openAdmin();
     else if (btn.dataset.go === 'overview') openOverview();
     else if (btn.dataset.go === 'stats') openStats();
+    else if (btn.dataset.go === 'drinks') openDrinks();
     else { $('soon-title').textContent = btn.dataset.title; showPage('page-soon'); }
   });
 }
@@ -1808,6 +1903,296 @@ function renderCards() {
 }
 
 $('cards-back').addEventListener('click', openOverview);
+
+// ---------------------------------------------------------------------------
+// BEVERAGE COUNTER
+// ---------------------------------------------------------------------------
+// Counts are stored against a calendar day rather than being reset at midnight.
+// There is no server to run a reset, and a client-side one would only fire if
+// somebody happened to have the app open at the time; rolling the date over
+// does the same job and cannot be missed. Yesterday's number is then still
+// there to look at, which the table at the bottom needs anyway.
+//
+// The day is Eastern, via the IANA zone rather than a fixed -5, so it follows
+// daylight saving instead of drifting by an hour for half the year.
+const DRINK_TZ = 'America/New_York';
+const drinkRef = id => doc(db, 'drinks', id || playerId());
+
+const dayFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: DRINK_TZ, year: 'numeric', month: '2-digit', day: '2-digit'
+});
+const dayOf = date => dayFormatter.format(date);           // YYYY-MM-DD
+
+const timeFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: DRINK_TZ, hour: 'numeric', minute: '2-digit'
+});
+const hourFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: DRINK_TZ, hour: 'numeric', hour12: false
+});
+const prettyDay = key => {
+  const [y, m, d] = key.split('-');
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
+    .format(new Date(Number(y), Number(m) - 1, Number(d)));
+};
+
+let unsubDrinks = null;
+let drinkWriteTimer = null;
+
+function subscribeDrinks() {
+  if (unsubDrinks) return;
+  unsubDrinks = onSnapshot(collection(db, 'drinks'), snap => {
+    state.drinks = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    if (document.body.dataset.page === 'page-drinks') renderDrinks();
+  }, err => showError($('course-error'), friendly(err)));
+}
+
+function myDrinkDoc() {
+  return (state.drinks || []).find(d => d.id === playerId()) || null;
+}
+
+function drinksOn(row, day) {
+  return ((row && row.days) || {})[day] || 0;
+}
+
+function openDrinks() {
+  $('drinks-day').textContent = prettyDay(dayOf(new Date()));
+  renderDrinks();
+  showPage('page-drinks');
+}
+
+// Tapping is local and instant; the write is coalesced so a quick run of taps
+// is one round trip rather than five.
+function bumpDrink(delta) {
+  const day = dayOf(new Date());
+  const mine = myDrinkDoc();
+  const current = state.drinkLocal !== null && state.drinkLocal !== undefined
+    ? state.drinkLocal
+    : drinksOn(mine, day);
+  const next = Math.max(0, Math.min(99, current + delta));
+  if (next === current) return;
+
+  state.drinkLocal = next;
+  state.drinkLog = (state.drinkLog || (mine && mine.log) || []).slice();
+  if (delta > 0) {
+    state.drinkLog.push({ t: Date.now(), day: day });
+  } else {
+    // Take back the most recent entry for today, so the timeline matches.
+    for (let i = state.drinkLog.length - 1; i >= 0; i--) {
+      if (state.drinkLog[i].day === day) { state.drinkLog.splice(i, 1); break; }
+    }
+  }
+  if (state.drinkLog.length > 400) state.drinkLog = state.drinkLog.slice(-400);
+
+  renderDrinks();
+  clearTimeout(drinkWriteTimer);
+  drinkWriteTimer = setTimeout(flushDrinks, 500);
+}
+
+function flushDrinks() {
+  clearTimeout(drinkWriteTimer);
+  if (state.drinkLocal === null || state.drinkLocal === undefined) return;
+  const day = dayOf(new Date());
+  const days = {};
+  days[day] = state.drinkLocal;
+  setDoc(drinkRef(), {
+    name: String(state.name || 'Player').slice(0, 40),
+    days: days,
+    log: state.drinkLog || []
+  }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
+}
+
+// A tab going away mid-count must not strand the tally.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushDrinks();
+});
+
+function renderDrinks() {
+  const today = dayOf(new Date());
+  const rows = (state.drinks || []).slice();
+  const mine = myDrinkDoc();
+
+  // Your own count: the pending local value wins until the write lands.
+  const count = state.drinkLocal !== null && state.drinkLocal !== undefined
+    ? state.drinkLocal
+    : drinksOn(mine, today);
+  $('drink-count').textContent = count;
+  $('drink-minus').disabled = count === 0;
+
+  renderDrinksToday(rows, today);
+  renderDrinksClock(rows, today);
+  renderDrinksFeed(rows, today);
+  renderDrinksHistory(rows, today);
+}
+
+function renderDrinksToday(rows, today) {
+  const host = $('drinks-today');
+  host.innerHTML = '';
+  const list = rows
+    .map(r => ({ r: r, n: r.id === playerId() && state.drinkLocal !== null
+      && state.drinkLocal !== undefined ? state.drinkLocal : drinksOn(r, today) }))
+    .filter(x => x.n > 0)
+    .sort((a, b) => b.n - a.n || String(a.r.name || '').localeCompare(String(b.r.name || '')));
+
+  $('drinks-today-empty').classList.toggle('hidden', list.length > 0);
+  const most = list.length ? list[0].n : 0;
+
+  for (const item of list) {
+    const row = document.createElement('div');
+    row.className = 'drow' + (item.r.id === playerId() ? ' me' : '');
+
+    const nm = document.createElement('span');
+    nm.className = 'dname';
+    nm.textContent = item.r.name || 'Player';   // player-typed: text only
+
+    const bar = document.createElement('span');
+    bar.className = 'dbar';
+    const fill = document.createElement('i');
+    fill.style.width = (most ? Math.round(item.n / most * 100) : 0) + '%';
+    bar.appendChild(fill);
+
+    const n = document.createElement('span');
+    n.className = 'dnum';
+    n.textContent = item.n;
+
+    row.appendChild(nm); row.appendChild(bar); row.appendChild(n);
+    host.appendChild(row);
+  }
+}
+
+// Chosen over a running timeline: on a phone, twenty-odd entries in a list say
+// far less than the shape of the day does. The feed below covers the detail.
+function renderDrinksClock(rows, today) {
+  const host = $('drinks-clock');
+  host.innerHTML = '';
+
+  const byHour = new Array(24).fill(0);
+  let total = 0;
+  for (const row of rows) {
+    const log = row.id === playerId() && state.drinkLog ? state.drinkLog : (row.log || []);
+    for (const entry of log) {
+      if (entry.day !== today || !entry.t) continue;
+      byHour[Number(hourFormatter.format(new Date(entry.t)))]++;
+      total++;
+    }
+  }
+
+  if (!total) {
+    const none = document.createElement('p');
+    none.className = 'muted';
+    none.textContent = 'Nothing logged today.';
+    host.appendChild(none);
+    return;
+  }
+
+  // Trim to the hours actually in play so the chart is not mostly empty.
+  let first = byHour.findIndex(n => n > 0);
+  let last = byHour.length - 1 - byHour.slice().reverse().findIndex(n => n > 0);
+  first = Math.max(0, first - 1);
+  last = Math.min(23, last + 1);
+  const peak = Math.max.apply(null, byHour);
+
+  const chart = document.createElement('div');
+  chart.className = 'clock';
+  for (let h = first; h <= last; h++) {
+    const col = document.createElement('div');
+    col.className = 'chour';
+
+    const bar = document.createElement('i');
+    bar.style.height = Math.round(byHour[h] / peak * 100) + '%';
+    if (!byHour[h]) bar.classList.add('empty');
+    bar.title = byHour[h] + ' at ' + (h % 12 || 12) + (h < 12 ? 'am' : 'pm');
+
+    const lab = document.createElement('span');
+    lab.textContent = (h % 12 || 12) + (h < 12 ? 'a' : 'p');
+
+    col.appendChild(bar); col.appendChild(lab);
+    chart.appendChild(col);
+  }
+  host.appendChild(chart);
+}
+
+function renderDrinksFeed(rows, today) {
+  const host = $('drinks-feed');
+  host.innerHTML = '';
+
+  const entries = [];
+  for (const row of rows) {
+    const log = row.id === playerId() && state.drinkLog ? state.drinkLog : (row.log || []);
+    let n = 0;
+    for (const entry of log) {
+      if (entry.day !== today || !entry.t) continue;
+      n++;
+      entries.push({ t: entry.t, name: row.name || 'Player', nth: n, id: row.id });
+    }
+  }
+  entries.sort((a, b) => b.t - a.t);
+  const shown = entries.slice(0, 20);
+  $('drinks-feed-empty').classList.toggle('hidden', shown.length > 0);
+
+  for (const entry of shown) {
+    const li = document.createElement('li');
+    if (entry.id === playerId()) li.className = 'me';
+
+    const when = document.createElement('span');
+    when.className = 'ftime';
+    when.textContent = timeFormatter.format(new Date(entry.t));
+
+    const who = document.createElement('span');
+    who.className = 'fwho';
+    who.textContent = entry.name;               // player-typed: text only
+
+    const nth = document.createElement('span');
+    nth.className = 'fnth';
+    nth.textContent = '#' + entry.nth;
+
+    li.appendChild(when); li.appendChild(who); li.appendChild(nth);
+    host.appendChild(li);
+  }
+}
+
+function renderDrinksHistory(rows, today) {
+  const host = $('drinks-history');
+  host.innerHTML = '';
+
+  const days = new Set();
+  for (const row of rows) for (const key of Object.keys(row.days || {})) days.add(key);
+  days.add(today);
+  const dayList = [...days].sort();
+
+  $('drinks-history-empty').classList.toggle('hidden', rows.length > 0);
+  if (!rows.length) return;
+
+  const table = document.createElement('table');
+  table.className = 'card-table';
+
+  const head = table.insertRow();
+  head.className = 'r-hole';
+  addLabel(head, 'Player');
+  for (const key of dayList) addCell(head, prettyDay(key));
+  addCell(head, 'Total', 'sub');
+
+  const people = rows.slice()
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+  for (const row of people) {
+    const tr = table.insertRow();
+    tr.className = 'r-player' + (row.id === playerId() ? ' me' : '');
+    addLabel(tr, row.name || 'Player');
+    let total = 0;
+    for (const key of dayList) {
+      const n = row.id === playerId() && key === today
+        && state.drinkLocal !== null && state.drinkLocal !== undefined
+        ? state.drinkLocal : drinksOn(row, key);
+      total += n;
+      addCell(tr, n ? String(n) : '');
+    }
+    addCell(tr, String(total), 'sub');
+  }
+  host.appendChild(table);
+}
+
+$('drink-plus').addEventListener('click', () => bumpDrink(1));
+$('drink-minus').addEventListener('click', () => bumpDrink(-1));
 
 // ---------------------------------------------------------------------------
 // STATS
@@ -2277,8 +2662,10 @@ function renderAdminRoster() {
 function watchAdminPlayers(courseId) {
   adminCourseId = courseId;
   $('admin-players-title').textContent = COURSES[courseId].name;
-  $('admin-players-card').classList.remove('hidden');
+  const card = $('admin-players-card');
+  card.classList.remove('hidden');
   renderAdminPlayers();
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderAdminPlayers() {
@@ -2381,6 +2768,7 @@ $('del-go').addEventListener('click', async () => {
     // course rather than lingering on the one you were not looking at.
     const results = await Promise.allSettled(
       Object.keys(COURSES).map(courseId => deleteDoc(playerRef(courseId, target.id)))
+        .concat([deleteDoc(drinkRef(target.id))])
     );
     const failed = results.find(r => r.status === 'rejected');
     if (failed) throw failed.reason;
