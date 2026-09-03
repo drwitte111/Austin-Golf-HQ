@@ -561,6 +561,47 @@
     color: #FFB3A7; border-radius: var(--radius);
     padding: 8px 10px; margin: 2px 0 10px; font-size: 12px;
   }
+  /* LIVE SCORECARD - one compact card per player */
+  .pcard {
+    background: var(--card-paper); color: var(--card-ink);
+    border: 2px solid var(--card-ink); border-radius: 3px;
+    margin-bottom: 10px; padding: 10px 12px 12px;
+  }
+  .pcard.me { border-color: var(--par-red); }
+  .pcard-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 10px; margin-bottom: 8px;
+  }
+  .pcard-head b {
+    font-family: Georgia, 'Times New Roman', serif; font-size: 16px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pcard-head b em { font-style: normal; font-weight: 400; font-size: 12px; color: #6E6A5E; }
+  .pcard-head span { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 16px; }
+
+  .pcard-nine { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+  .nlabel {
+    flex: none; width: 26px;
+    font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #6E6A5E;
+  }
+  .cells { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(9, 1fr); gap: 3px; }
+  .cell {
+    font-style: normal; text-align: center;
+    padding: 5px 0; font-size: 13px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid #C7C1B0; border-radius: 2px;
+    background: #fff;
+  }
+  .cell.locked { background: #E7E3D6; color: #A9A395; border-style: dashed; }
+  .cell.birdie, .cell.eagle { border-color: var(--par-red); color: var(--par-red); border-radius: 50%; }
+  .cell.eagle { box-shadow: inset 0 0 0 1px var(--par-red); }
+  .cell.bogey, .cell.double { border-color: var(--card-ink); border-radius: 0; }
+  .cell.double { box-shadow: inset 0 0 0 1px var(--card-ink); }
+  .nsum {
+    flex: none; width: 26px; text-align: right;
+    font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px;
+  }
+
   .duo-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .duo-tag {
     flex: none; width: 62px;
@@ -626,8 +667,8 @@
         <button class="ghost" id="menu-switch">Not you?</button>
       </div>
       <div class="menu-grid">
-        <button class="menu-btn soon" data-go="soon" data-title="Overview">
-          <strong>Overview</strong><span>Coming soon</span>
+        <button class="menu-btn" data-go="overview">
+          <strong>Live Scorecard</strong><span>Everyone's cards, hole by hole</span>
         </button>
         <button class="menu-btn soon" data-go="soon" data-title="Stats">
           <strong>Stats</strong><span>Coming soon</span>
@@ -657,6 +698,30 @@
     </div>
   </section>
 
+  <!-- OVERVIEW -->
+  <section class="page" id="page-overview">
+    <div class="topbar">
+      <button class="ghost" data-back>&larr; Menu</button>
+      <h2>Live Scorecard</h2>
+    </div>
+    <div class="card">
+      <h2>Live scorecards</h2>
+      <p class="muted">A hole stays hidden until you have entered your own score for it.</p>
+      <div class="menu-grid" id="overview-courses"></div>
+    </div>
+  </section>
+
+  <!-- EVERYONE'S CARDS -->
+  <section class="page" id="page-cards">
+    <div class="topbar">
+      <button class="ghost" id="cards-back">&larr; Back</button>
+      <h2 id="cards-title">Course</h2>
+    </div>
+    <div id="cards-note" class="partner"></div>
+    <div id="cards-list"></div>
+    <p class="muted hidden" id="cards-empty">Nobody has signed in yet.</p>
+  </section>
+
   <!-- ADMIN -->
   <section class="page" id="page-admin">
     <div class="topbar">
@@ -672,13 +737,20 @@
     </div>
 
     <div class="card">
+      <h2>Players</h2>
+      <p class="muted">Everyone who has signed in. Removing someone clears them and their scores from both courses.</p>
+      <ol class="admin-list" id="admin-roster"></ol>
+      <p class="muted hidden" id="admin-roster-empty">Nobody has signed in yet.</p>
+    </div>
+
+    <div class="card">
       <h2>Duos &amp; matchups</h2>
       <p class="muted">Partners hold for the whole day. Opponents can change at the turn.</p>
       <div id="matchup-editor"></div>
     </div>
 
     <div class="card hidden" id="admin-players-card">
-      <h2 id="admin-players-title">Players</h2>
+      <h2 id="admin-players-title">Choose a player</h2>
       <ol class="admin-list" id="admin-players"></ol>
       <p class="muted hidden" id="admin-players-empty">Nobody has entered a score on this course yet.</p>
     </div>
@@ -1206,8 +1278,11 @@ function onLiveData() {
     applyRoster();
     renderMatches();
   } else if (page === 'page-admin') {
+    renderAdminRoster();
     renderAdminPlayers();
     renderMatchupEditor();
+  } else if (page === 'page-cards') {
+    renderCards();
   }
 }
 
@@ -1292,6 +1367,7 @@ for (const btn of document.querySelectorAll('.menu-btn')) {
   btn.addEventListener('click', () => {
     if (btn.dataset.go === 'course') openCourse(btn.dataset.course);
     else if (btn.dataset.go === 'admin') openAdmin();
+    else if (btn.dataset.go === 'overview') openOverview();
     else { $('soon-title').textContent = btn.dataset.title; showPage('page-soon'); }
   });
 }
@@ -1398,6 +1474,153 @@ function renderRecords() {
     list.appendChild(li);
   });
 }
+
+// ---------------------------------------------------------------------------
+// LIVE SCORECARD
+// ---------------------------------------------------------------------------
+// Everyone's card, behind a blind: you cannot see anybody's score on a hole
+// until you have entered your own for that hole. We play skins, so a duo going
+// out later must not learn what the hole has already been done in.
+//
+// Worth being clear that this is a blind, not a lock. With no auth the rules
+// cannot hide individual fields, so the numbers are in the browser and someone
+// determined could read them. It removes the accidental advantage, not a
+// deliberate one.
+let cardsCourseId = null;
+
+function openOverview() {
+  buildCourseTiles($('overview-courses'), 'View cards', openCards);
+  showPage('page-overview');
+}
+
+// Shared by the Live Scorecard and Admin course pickers.
+function buildCourseTiles(host, caption, onPick) {
+  host.innerHTML = '';
+  for (const courseId of Object.keys(COURSES)) {
+    const course = COURSES[courseId];
+    const btn = document.createElement('button');
+    btn.className = 'menu-btn';
+    if (course.art) btn.dataset.art = course.art;
+    const strong = document.createElement('strong');
+    strong.textContent = course.name;
+    const span = document.createElement('span');
+    span.textContent = caption;
+    btn.appendChild(strong);
+    btn.appendChild(span);
+    btn.addEventListener('click', () => onPick(courseId));
+    host.appendChild(btn);
+  }
+}
+
+function openCards(courseId) {
+  cardsCourseId = courseId;
+  $('cards-title').textContent = COURSES[courseId].name;
+  renderCards();
+  showPage('page-cards');
+}
+
+function renderCards() {
+  if (!cardsCourseId) return;
+  const courseId = cardsCourseId;
+  const course = COURSES[courseId];
+  const list = roster(courseId).slice()
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+  // Your own entries are the key: a hole you have played is a hole you may see.
+  const mine = (list.find(p => p.id === playerId()) || {}).scores || {};
+  const unlocked = holeNo => mine[holeNo] !== undefined;
+  const unlockedCount = Object.keys(mine).length;
+  const totalHoles = flatHoles(course).length;
+
+  $('cards-note').textContent = unlockedCount === totalHoles
+    ? 'All ' + totalHoles + ' holes revealed.'
+    : unlockedCount + ' of ' + totalHoles + ' holes revealed \u2014 a hole unlocks when you enter your own score for it.';
+
+  const host = $('cards-list');
+  host.innerHTML = '';
+  $('cards-empty').classList.toggle('hidden', list.length > 0);
+
+  for (const player of list) {
+    const isMe = player.id === playerId();
+    const scores = player.scores || {};
+
+    const card = document.createElement('div');
+    card.className = 'pcard' + (isMe ? ' me' : '');
+
+    const head = document.createElement('div');
+    head.className = 'pcard-head';
+    const nm = document.createElement('b');
+    nm.textContent = player.name || 'Player';       // player-typed: text only
+    if (isMe) {
+      const em = document.createElement('em');
+      em.textContent = ' (you)';
+      nm.appendChild(em);
+    }
+    head.appendChild(nm);
+
+    const totalEl = document.createElement('span');
+    head.appendChild(totalEl);
+    card.appendChild(head);
+
+    let grandTotal = 0, grandComplete = true;
+
+    course.nines.forEach((nine, nineIndex) => {
+      const holes = holesOfNine(course, nineIndex);
+      const row = document.createElement('div');
+      row.className = 'pcard-nine';
+
+      const label = document.createElement('span');
+      label.className = 'nlabel';
+      label.textContent = nine.subtotal;
+      row.appendChild(label);
+
+      const cells = document.createElement('div');
+      cells.className = 'cells';
+
+      let sum = 0, complete = true;
+      for (const h of holes) {
+        const cell = document.createElement('i');
+        const visible = isMe || unlocked(h.holeNo);
+        const value = scores[h.holeNo];
+
+        if (!visible) {
+          cell.className = 'cell locked';
+          cell.textContent = '\u00b7';
+          cell.title = 'Hidden until you enter your own score for this hole';
+          complete = false;
+        } else if (value === undefined) {
+          cell.className = 'cell';
+          cell.textContent = '';
+          complete = false;
+        } else {
+          const diff = value - h.par;
+          cell.className = 'cell'
+            + (diff <= -2 ? ' eagle' : diff === -1 ? ' birdie'
+              : diff === 1 ? ' bogey' : diff >= 2 ? ' double' : '');
+          cell.textContent = value;
+          sum += value;
+        }
+        cells.appendChild(cell);
+      }
+      row.appendChild(cells);
+
+      // A subtotal only shows once every hole in it is both played and visible;
+      // otherwise the number itself leaks what is still hidden.
+      const sub = document.createElement('span');
+      sub.className = 'nsum';
+      sub.textContent = complete ? sum : '\u2014';
+      row.appendChild(sub);
+      card.appendChild(row);
+
+      if (complete) grandTotal += sum; else grandComplete = false;
+    });
+
+    totalEl.textContent = grandComplete ? String(grandTotal) : '';
+    host.appendChild(card);
+  }
+}
+
+$('cards-back').addEventListener('click', openOverview);
 
 // ---------------------------------------------------------------------------
 // ADMIN
@@ -1566,6 +1789,7 @@ function renderMatchupEditor() {
 function openAdmin() {
   if (!state.admin) return;
   buildAdminCourses();
+  renderAdminRoster();
   renderMatchupEditor();
   adminCourseId = null;
   $('admin-players-card').classList.add('hidden');
@@ -1573,21 +1797,55 @@ function openAdmin() {
 }
 
 function buildAdminCourses() {
-  const box = $('admin-courses');
-  box.innerHTML = '';
-  for (const courseId of Object.keys(COURSES)) {
-    const course = COURSES[courseId];
-    const btn = document.createElement('button');
-    btn.className = 'menu-btn';
-    if (course.art) btn.dataset.art = course.art;
-    const strong = document.createElement('strong');
-    strong.textContent = course.name;
-    const span = document.createElement('span');
-    span.textContent = 'Choose a player';
-    btn.appendChild(strong);
-    btn.appendChild(span);
-    btn.addEventListener('click', () => watchAdminPlayers(courseId));
-    box.appendChild(btn);
+  buildCourseTiles($('admin-courses'), 'Choose a player', watchAdminPlayers);
+}
+
+// Removing a person is not course-specific, so it lives on its own rather than
+// behind a course picker: this is the list of everyone who has signed in.
+function renderAdminRoster() {
+  const list = $('admin-roster');
+  const players = allPlayers();
+  list.innerHTML = '';
+  $('admin-roster-empty').classList.toggle('hidden', players.length > 0);
+
+  for (const p of players) {
+    const row = document.createElement('div');
+    row.className = 'admin-row';
+
+    const nm = document.createElement('b');
+    nm.textContent = p.name || 'Player';          // player-typed: text only
+    if (p.id === playerId()) {
+      const em = document.createElement('em');
+      em.textContent = ' (you)';
+      nm.appendChild(em);
+    }
+
+    const played = document.createElement('span');
+    played.className = 'thru';
+    const total = Object.keys(COURSES)
+      .reduce((n, cid) => n + holesPlayed(((roster(cid).find(x => x.id === p.id) || {}).scores) || {}), 0);
+    played.textContent = total + ' holes in';
+
+    const spacer = document.createElement('span');
+
+    row.appendChild(nm);
+    row.appendChild(played);
+    row.appendChild(spacer);
+
+    const del = document.createElement('button');
+    del.className = 'admin-del';
+    del.textContent = '\u2715';
+    del.setAttribute('aria-label', 'Remove ' + (p.name || 'player'));
+    del.addEventListener('click', () => askDelete(p.id, p.name || 'Player'));
+
+    const item = document.createElement('div');
+    item.className = 'admin-item';
+    item.appendChild(row);
+    item.appendChild(del);
+
+    const li = document.createElement('li');
+    li.appendChild(item);
+    list.appendChild(li);
   }
 }
 
