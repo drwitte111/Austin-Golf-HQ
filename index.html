@@ -476,6 +476,35 @@
     font-size: 13px; font-weight: 600; margin-bottom: 12px;
   }
 
+  .overlay {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(6, 16, 11, .84);
+    padding: 18px;
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  .dialog {
+    width: 100%; max-width: 380px;
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .dialog h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .09em; color: var(--sand); margin-bottom: 10px; }
+  .danger {
+    width: 100%; padding: 13px; border: 0;
+    background: var(--rust); color: #fff;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 15px;
+  }
+  .danger:disabled { opacity: .40; cursor: default; }
+
+  .admin-item { display: grid; grid-template-columns: minmax(0, 1fr) 46px; gap: 8px; }
+  .admin-del {
+    border: 1px solid rgba(255,255,255,.18); background: transparent;
+    color: var(--muted); font-size: 16px;
+  }
+  .admin-del:hover { border-color: var(--rust); color: #FFB3A7; }
+
   .admin-list { list-style: none; }
   .admin-list li { margin-bottom: 8px; }
   .admin-row {
@@ -579,6 +608,21 @@
     </div>
   </section>
 
+  <!-- DELETE CONFIRMATION -->
+  <div class="overlay hidden" id="del-overlay">
+    <div class="dialog">
+      <h2>Delete player</h2>
+      <p class="muted" id="del-text"></p>
+      <label class="field" style="margin-top:14px">
+        <span>Type the name to confirm</span>
+        <input id="del-input" class="text" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </label>
+      <div id="del-error" class="error hidden"></div>
+      <button class="danger" id="del-go" disabled>Delete permanently</button>
+      <button class="ghost" id="del-cancel" style="width:100%;margin-top:8px;text-align:center">Cancel</button>
+    </div>
+  </div>
+
   <!-- COURSE SCORECARD -->
   <section class="page" id="page-course">
     <div class="topbar">
@@ -622,7 +666,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
 import {
-  getFirestore, collection, doc, setDoc, deleteField,
+  getFirestore, collection, doc, setDoc, deleteDoc, deleteField,
   onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
@@ -844,6 +888,22 @@ function friendly(err) {
   return (err && err.message) || 'Something went wrong.';
 }
 
+// Puts you on every course the moment you have a name, rather than only the
+// one you happen to open. That way the group sees the whole field on both
+// leaderboards, and an admin can find anyone without them having tapped in.
+//
+// Not awaited: these are merge writes, so they are safe to repeat, and
+// Firestore queues them if you signed in with no signal.
+function registerEverywhere() {
+  if (!state.name) return;
+  for (const courseId of Object.keys(COURSES)) {
+    setDoc(playerRef(courseId), {
+      name: state.name.slice(0, 40),
+      updatedAt: serverTimestamp()
+    }, { merge: true }).catch(() => { /* surfaces on the course screen instead */ });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // LOGIN
 // ---------------------------------------------------------------------------
@@ -852,6 +912,7 @@ $('login-go').addEventListener('click', () => {
   if (!name) { $('login-name').focus(); return; }
   state.name = name;
   writeStore(NAME_KEY, name);
+  registerEverywhere();
   enterMenu();
 });
 $('login-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-go').click(); });
@@ -995,11 +1056,72 @@ function renderAdminPlayers(courseId, players, holes) {
       openCourse(courseId, { id: p.id, name: p.name || 'Player' });
     });
 
+    const del = document.createElement('button');
+    del.className = 'admin-del';
+    del.textContent = '✕';
+    del.setAttribute('aria-label', 'Delete ' + (p.name || 'player'));
+    del.addEventListener('click', () => askDelete(p.id, p.name || 'Player'));
+
+    const item = document.createElement('div');
+    item.className = 'admin-item';
+    item.appendChild(btn);
+    item.appendChild(del);
+
     const li = document.createElement('li');
-    li.appendChild(btn);
+    li.appendChild(item);
     list.appendChild(li);
   }
 }
+
+// Deleting someone is not undoable, so it asks for their name to be typed out
+// rather than offering a button that a thumb can find by accident. Same shape
+// as the admin delete in LaManna-Big-Year.
+let pendingDelete = null;
+
+function askDelete(id, name) {
+  pendingDelete = { id: id, name: name };
+  $('del-text').textContent =
+    'This removes ' + name + " and every score they have entered, on both courses. It cannot be undone.";
+  $('del-input').value = '';
+  $('del-go').disabled = true;
+  showError($('del-error'), '');
+  $('del-overlay').classList.remove('hidden');
+  $('del-input').focus();
+}
+
+function closeDelete() {
+  pendingDelete = null;
+  $('del-overlay').classList.add('hidden');
+}
+
+$('del-input').addEventListener('input', () => {
+  const typed = $('del-input').value.trim().toLowerCase();
+  const wanted = pendingDelete ? pendingDelete.name.trim().toLowerCase() : null;
+  $('del-go').disabled = !wanted || typed !== wanted;
+});
+
+$('del-cancel').addEventListener('click', closeDelete);
+$('del-overlay').addEventListener('click', e => { if (e.target === $('del-overlay')) closeDelete(); });
+
+$('del-go').addEventListener('click', async () => {
+  if (!pendingDelete) return;
+  const target = pendingDelete;
+  $('del-go').disabled = true;
+  showError($('del-error'), '');
+  try {
+    // A player is one person across the whole app, so they come off every
+    // course rather than lingering on the one you were not looking at.
+    const results = await Promise.allSettled(
+      Object.keys(COURSES).map(courseId => deleteDoc(playerRef(courseId, target.id)))
+    );
+    const failed = results.find(r => r.status === 'rejected');
+    if (failed) throw failed.reason;
+    closeDelete();
+  } catch (err) {
+    showError($('del-error'), friendly(err));
+    $('del-go').disabled = false;
+  }
+});
 
 // Back out of a card to wherever you came from.
 $('course-back').addEventListener('click', () => {
@@ -1042,16 +1164,6 @@ function openCourse(courseId, target) {
   refreshTotals();
   showPage('page-course');
 
-  // Join the round yourself. Skipped when editing someone else's card, so an
-  // admin looking at a player does not add an empty row of their own.
-  // Not awaited on purpose: Firestore resolves a write only once the server
-  // acks it, so awaiting would hang the screen with no signal.
-  if (!state.editingOther) {
-    setDoc(playerRef(courseId), {
-      name: state.name.slice(0, 40),
-      updatedAt: serverTimestamp()
-    }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
-  }
 
   if (unsubPlayers) unsubPlayers();
   unsubPlayers = onSnapshot(playersRef(courseId), snap => {
@@ -1509,6 +1621,7 @@ function renderLeaderboard(players) {
 // ---------------------------------------------------------------------------
 (function boot() {
   if (!state.name) { showPage('page-login'); return; }
+  registerEverywhere();
   enterMenu();
 })();
 </script>
