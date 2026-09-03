@@ -672,8 +672,14 @@
   .clock-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .clock-head select.pick { flex: 1; min-width: 0; height: 38px; font-size: 14px; }
   /* 24 bars have to fit a phone, so the gap is hairline and the ticks thin out. */
-  .clock { display: flex; align-items: flex-end; gap: 2px; height: 104px; }
+  .clock { display: flex; align-items: flex-end; gap: 2px; height: 104px; position: relative; }
   .clock.bydays { gap: 6px; }
+  /* One continuous rule at the foot of the bars. Drawn on the chart rather than
+     per column so it cannot be broken up by the gaps between them. */
+  .clock::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 15px;
+    border-top: 1px solid rgba(255,255,255,.16);
+  }
   .chour {
     flex: 1; min-width: 0; height: 100%;
     display: flex; flex-direction: column; justify-content: flex-end;
@@ -683,8 +689,12 @@
   .chour.sel span { color: var(--sand); font-weight: 700; }
   .chour i { display: block; background: var(--green); border-radius: 2px 2px 0 0; min-height: 2px; }
   .chour i.empty { background: rgba(255,255,255,.10); }
+  /* Every column reserves the same label space whether or not it is ticked.
+     An empty span collapses to nothing, which let unlabelled columns drop their
+     bar ~11px lower than labelled ones and made the baseline wander. */
   .chour span {
-    font-size: 8px; color: var(--muted); text-align: center; margin-top: 3px;
+    display: block; height: 12px; line-height: 12px; margin-top: 3px;
+    font-size: 8px; color: var(--muted); text-align: center;
     white-space: nowrap; overflow: hidden;
   }
   .clock.bydays .chour span { font-size: 10px; }
