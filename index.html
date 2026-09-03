@@ -812,7 +812,16 @@ function openCourse(courseId) {
     renderLeaderboard(players);
     const me = players.find(p => p.id === playerId());
     if (me) {
-      state.scores = me.scores || {};
+      // Take the server's copy, but never let it overwrite a hole that is still
+      // sitting in its debounce window: that edit is newer than anything the
+      // server can tell us yet. Replacing wholesale here silently erased holes
+      // when someone entered several in quick succession.
+      const merged = Object.assign({}, me.scores || {});
+      for (const hole of pendingWrites.keys()) {
+        if (state.scores[hole] === undefined) delete merged[hole];
+        else merged[hole] = state.scores[hole];
+      }
+      state.scores = merged;
       syncScoreInputs();
       refreshTotals();
     }
