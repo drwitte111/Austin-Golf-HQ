@@ -599,13 +599,17 @@
   .youtag { font-style: normal; color: var(--muted); font-weight: 400; }
 
   .skin {
-    display: grid; grid-template-columns: 62px minmax(0,1fr) 34px;
-    align-items: center; gap: 8px;
+    display: grid; grid-template-columns: minmax(0,1fr) 36px;
+    align-items: center; gap: 10px;
     padding: 9px 8px; border-radius: 4px; font-size: 14px;
   }
   .skin:nth-of-type(even) { background: rgba(0,0,0,.18); }
-  .skin-hole { color: var(--muted); font-size: 12px; }
-  .skin-duo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .skin-meta { min-width: 0; }
+  .skin-hole { color: var(--muted); font-size: 11px; letter-spacing: .02em; }
+  .skin-duo {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 600; margin-top: 2px;
+  }
   .skin-score {
     text-align: center; font-weight: 700; font-variant-numeric: tabular-nums;
     border: 2px solid transparent; border-radius: 3px; padding: 2px 0;
@@ -1868,17 +1872,26 @@ function renderSkins() {
       + COURSES[segment.courseId].nines[segment.nine].title;
     host.appendChild(head);
 
+    const tee = COURSES[segment.courseId].tees[0];
     for (const skin of skins) {
       const row = document.createElement('div');
       row.className = 'skin';
 
-      const hole = document.createElement('span');
-      hole.className = 'skin-hole';
-      hole.textContent = 'Hole ' + skin.holeNo;
+      const meta = document.createElement('div');
+      meta.className = 'skin-meta';
 
-      const who = document.createElement('span');
+      const hole = document.createElement('div');
+      hole.className = 'skin-hole';
+      const info = holeInfo(segment.courseId, skin.holeNo);
+      hole.textContent = 'Hole ' + skin.holeNo + ' · Par ' + skin.par
+        + ' · ' + info.hole[tee] + ' yds';
+
+      const who = document.createElement('div');
       who.className = 'skin-duo';
       who.textContent = duoName(skin.duo);
+
+      meta.appendChild(hole);
+      meta.appendChild(who);
 
       const score = document.createElement('span');
       score.className = 'skin-score';
@@ -1887,7 +1900,7 @@ function renderSkins() {
       score.classList.add(diff <= -2 ? 'eagle' : diff === -1 ? 'birdie'
         : diff === 1 ? 'bogey' : diff >= 2 ? 'double' : 'par');
 
-      row.appendChild(hole); row.appendChild(who); row.appendChild(score);
+      row.appendChild(meta); row.appendChild(score);
       host.appendChild(row);
     }
   }
