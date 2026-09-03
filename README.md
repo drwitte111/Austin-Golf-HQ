@@ -1,7 +1,8 @@
 # Austin Golf HQ
 
-Live golf scoring for the group. Type your name, pick a course, enter what you
-shot hole by hole, and everyone watches the leaderboard move in real time.
+Live scoring for a two-day, eight-golfer trip played as **two-man scramble
+match play**. Type your name, enter your duo's score hole by hole, and everyone
+watches the matches move in real time.
 
 Built the same way as [LaManna-Big-Year](https://github.com/drwitte111/LaManna-Big-Year):
 a single `index.html`, Firebase straight from the CDN, no build step, no npm,
@@ -22,6 +23,34 @@ Login (name only)
         ├── New Kings North   - built
         └── Admin             - built, only shown to an admin
 ```
+
+## The format
+
+Eight golfers, four duos, two days of eighteen. Partners hold for the day;
+opponents can change at the turn. That makes **four nine-hole matches**:
+
+| | Day 1 — World Tour | Day 2 — Kings North |
+| --- | --- | --- |
+| Front | Open Nine | Front Nine |
+| Back | Championship Nine | Back Nine |
+
+A duo plays a scramble, so **a hole entered by either partner lands on both**,
+written in one atomic batch — a half-written hole would put partners on
+different scores and quietly corrupt the match. Scores are still stored per
+player, which is the whole point: partners rotate, so everyone finishes with
+their own record.
+
+### Deciding a match
+
+1. **Holes won.**
+2. Level after nine → **total strokes** for the nine.
+3. Level again → **skins**, walked from the hardest hole down. The first hole
+   one duo beat the other on outright takes it.
+
+Three tiers means a tie is effectively impossible. If every hole is halved with
+identical totals the app says "dead heat" rather than inventing a winner.
+
+Records count one W or L per finished nine — four results per person.
 
 ## World Tour Golf
 
@@ -55,6 +84,8 @@ the hole data, so putting that tee back is a one-word change.
 case-insensitively. The Admin screen lists every player on a course with their
 live total and to-par, and lets you:
 
+- **set the duos and matchups** — four duos per day, then which duo meets which
+  on each nine. It warns if a nine double-books one duo or leaves another out.
 - **open anyone's card and edit it** — the normal entry screen, with a red
   banner naming whose card is open. Editing someone else does not add a row for
   you.
@@ -82,6 +113,7 @@ Auth plus a uid check in the rules.
 
 ```
 courses/{courseId}/players/{deviceId}   name, scores { "1": 4, ... "18": 5 }, updatedAt
+config/schedule                        day1/day2 duos, and each nine's matchups
 ```
 
 Course reference data ships in `index.html`, not Firestore — no reads to pay
