@@ -2125,8 +2125,11 @@ function renderCards() {
     });
     const spare = players.filter(x => !claimed[x.id]);
     if (spare.length) {
+      // With nothing configured this screen used to fall back to a plain list,
+      // which looks exactly like a working card with nobody paired. Say it.
       groups.push({
-        title: matches.length ? 'Not in a match' : null,
+        title: matches.length ? 'Not in a match' : 'No matchups set for this nine',
+        note: matches.length ? null : 'An admin sets them on the Admin tab.',
         solo: spare
       });
     }
@@ -2194,9 +2197,9 @@ function renderCards() {
         const label = document.createElement('b');
         label.textContent = group.title;
         cell.appendChild(label);
-        if (group.status) {
+        if (group.status || group.note) {
           const st = document.createElement('em');
-          st.textContent = group.status;
+          st.textContent = group.status || group.note;
           cell.appendChild(st);
         }
       }
@@ -2944,15 +2947,21 @@ function currentDuos(dayId) {
 
 // Every duo should play exactly once on a nine. Returns plain-English problems.
 function checkNine(matches) {
+  const problems = [];
   const used = [];
-  for (const m of matches) {
+
+  // An unfinished nine used to pass silently, so a half-set draw looked no
+  // different from a correct one - and nothing played on it counted.
+  matches.forEach((m, i) => {
+    const blank = ['a', 'b'].filter(side => m[side] === null || m[side] === undefined);
+    if (blank.length === 2) problems.push('Match ' + (i + 1) + ' has no duos set.');
+    else if (blank.length === 1) problems.push('Match ' + (i + 1) + ' is missing one side.');
     for (const side of ['a', 'b']) {
       if (m[side] !== null && m[side] !== undefined) used.push(m[side]);
     }
-  }
-  if (used.length < DUO_COUNT) return [];      // still being filled in
+  });
+  if (problems.length) return problems;        // finish filling it in first
 
-  const problems = [];
   for (let i = 0; i < DUO_COUNT; i++) {
     const count = used.filter(x => x === i).length;
     if (count > 1) problems.push('Duo ' + (i + 1) + ' is in both matches.');
