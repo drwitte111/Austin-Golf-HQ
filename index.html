@@ -343,7 +343,7 @@
   .hstats { font-size: 11px; color: #6E6A5E; margin-top: 1px; letter-spacing: .02em; }
   .hstats b { color: var(--par-red); font-weight: 700; }
 
-  .hyards { display: flex; gap: 4px; margin-top: 3px; }
+  .hyards { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
   .ychip {
     padding: 0 5px; border-radius: 2px;
     font-size: 10px; font-weight: 700; line-height: 1.6;
@@ -353,6 +353,10 @@
   .y-black  { background: var(--tee-black);  color: var(--card-paper); }
   .y-gold   { background: var(--tee-gold);   color: var(--card-ink); }
   .y-silver { background: var(--tee-silver); color: var(--card-ink); }
+  .y-white  { background: #FFFFFF; color: var(--card-ink); box-shadow: inset 0 0 0 1px #B9B3A2; }
+  .y-blue   { background: #2F3BB3; color: #FFFFFF; }
+  .y-red    { background: #C8202A; color: #FFFFFF; }
+  .hname.par-head { color: var(--par-red); }
 
   .yard-key {
     display: flex; align-items: center; gap: 5px;
@@ -466,6 +470,29 @@
     ol.leaderboard li { grid-template-columns: 20px 1fr auto 40px 40px; font-size: 14px; }
   }
 
+  .editing {
+    background: var(--par-red); color: #fff;
+    padding: 10px 12px; border-radius: var(--radius);
+    font-size: 13px; font-weight: 600; margin-bottom: 12px;
+  }
+
+  .admin-list { list-style: none; }
+  .admin-list li { margin-bottom: 8px; }
+  .admin-row {
+    width: 100%;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center; gap: 10px; text-align: left;
+    padding: 12px 14px;
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,.14);
+    color: var(--cream);
+  }
+  .admin-row:hover { border-color: var(--light); }
+  .admin-row b { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-row .thru { font-size: 12px; color: var(--muted); }
+  .admin-row .tot { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--sand); }
+  #admin-courses { margin-top: 12px; }
+
   .muted { color: var(--muted); font-size: 14px; }
   .error { color: #FFB3A7; background: rgba(168,65,47,.22); border: 1px solid var(--rust); padding: 10px 12px; border-radius: var(--radius); font-size: 14px; margin-bottom: 12px; }
   .hidden { display: none !important; }
@@ -509,12 +536,12 @@
         <button class="menu-btn" data-go="course" data-course="world-tour-golf" data-art="world-tour">
           <strong>World Tour Golf</strong><span>Enter your scorecard</span>
         </button>
-        <button class="menu-btn soon" data-go="soon" data-title="New Kings North" data-art="kings-north">
-          <strong>New Kings North</strong><span>Coming soon</span>
+        <button class="menu-btn" data-go="course" data-course="kings-north" data-art="kings-north">
+          <strong>New Kings North</strong><span>Enter your scorecard</span>
         </button>
         <!-- Only rendered for an admin session; see ADMIN_NAMES below. -->
-        <button class="menu-btn soon admin-only hidden" data-go="soon" data-title="Admin">
-          <strong>Admin</strong><span>Coming soon</span>
+        <button class="menu-btn admin-only hidden" data-go="admin">
+          <strong>Admin</strong><span>Edit anyone's scores</span>
         </button>
       </div>
     </div>
@@ -531,14 +558,36 @@
     </div>
   </section>
 
+  <!-- ADMIN -->
+  <section class="page" id="page-admin">
+    <div class="topbar">
+      <button class="ghost" data-back>&larr; Menu</button>
+      <h2>Admin</h2>
+      <span class="badge">Admin</span>
+    </div>
+
+    <div class="card">
+      <h2>Edit a player's card</h2>
+      <p class="muted">Pick a course, then whose scores to change.</p>
+      <div class="menu-grid" id="admin-courses"></div>
+    </div>
+
+    <div class="card hidden" id="admin-players-card">
+      <h2 id="admin-players-title">Players</h2>
+      <ol class="admin-list" id="admin-players"></ol>
+      <p class="muted hidden" id="admin-players-empty">Nobody has entered a score on this course yet.</p>
+    </div>
+  </section>
+
   <!-- COURSE SCORECARD -->
   <section class="page" id="page-course">
     <div class="topbar">
-      <button class="ghost" data-back>&larr; Menu</button>
+      <button class="ghost" id="course-back">&larr; Menu</button>
       <h2 id="course-title">Course</h2>
       <span class="who" id="course-who"></span>
     </div>
 
+    <div id="editing-banner" class="editing hidden"></div>
     <div id="course-error" class="error hidden"></div>
 
     <!-- Entry runs down the page, one hole per row, so a phone held upright
@@ -602,7 +651,9 @@ const db = getFirestore(app);
 const COURSES = {
   'world-tour-golf': {
     name: 'World Tour Golf',
+    art: 'world-tour',
     tees: ['BLACK', 'GOLD', 'SILVER'],
+    numbering: 'per-nine',
     nines: [
       {
         title: 'Open Nine',
@@ -632,6 +683,46 @@ const COURSES = {
           { inspiredBy: 'Olympic #14',         BLACK: 418, GOLD: 418, SILVER: 402, par: 4, hcp: 6  },
           { inspiredBy: 'Oakmont #14',         BLACK: 360, GOLD: 344, SILVER: 334, par: 4, hcp: 16 },
           { inspiredBy: 'Bay Hill #11',        BLACK: 420, GOLD: 395, SILVER: 382, par: 4, hcp: 4  }
+        ]
+      }
+    ]
+  },
+
+  // Kings North numbers its holes 1-18 straight through and has five sets of
+  // tees, both of which the renderer picks up from this data alone.
+  'kings-north': {
+    name: 'New Kings North',
+    art: 'kings-north',
+    tees: ['BLACK', 'GOLD', 'WHITE', 'BLUE', 'RED'],
+    nines: [
+      {
+        title: 'Front Nine',
+        subtotal: 'Out',
+        holes: [
+          { BLACK: 502, GOLD: 483, WHITE: 459, BLUE: 437, RED: 363, par: 5, hcp: 10 },
+          { BLACK: 409, GOLD: 390, WHITE: 371, BLUE: 360, RED: 310, par: 4, hcp:  8 },
+          { BLACK: 365, GOLD: 342, WHITE: 319, BLUE: 266, RED: 197, par: 4, hcp: 12 },
+          { BLACK: 180, GOLD: 168, WHITE: 107, BLUE:  97, RED:  82, par: 3, hcp: 16 },
+          { BLACK: 347, GOLD: 330, WHITE: 301, BLUE: 287, RED: 267, par: 4, hcp: 14 },
+          { BLACK: 568, GOLD: 525, WHITE: 497, BLUE: 484, RED: 430, par: 5, hcp:  2 },
+          { BLACK: 423, GOLD: 377, WHITE: 357, BLUE: 342, RED: 286, par: 4, hcp:  6 },
+          { BLACK: 190, GOLD: 178, WHITE: 159, BLUE: 139, RED: 107, par: 3, hcp: 18 },
+          { BLACK: 465, GOLD: 409, WHITE: 382, BLUE: 350, RED: 252, par: 4, hcp:  4 }
+        ]
+      },
+      {
+        title: 'Back Nine',
+        subtotal: 'In',
+        holes: [
+          { BLACK: 517, GOLD: 504, WHITE: 481, BLUE: 461, RED: 369, par: 5, hcp: 13 },
+          { BLACK: 470, GOLD: 418, WHITE: 389, BLUE: 372, RED: 334, par: 4, hcp: 11 },
+          { BLACK: 140, GOLD: 129, WHITE: 110, BLUE:  98, RED:  81, par: 3, hcp: 17 },
+          { BLACK: 407, GOLD: 396, WHITE: 379, BLUE: 363, RED: 327, par: 4, hcp:  3 },
+          { BLACK: 433, GOLD: 407, WHITE: 384, BLUE: 368, RED: 291, par: 4, hcp:  9 },
+          { BLACK: 567, GOLD: 497, WHITE: 474, BLUE: 433, RED: 426, par: 5, hcp:  1 },
+          { BLACK: 410, GOLD: 397, WHITE: 370, BLUE: 347, RED: 304, par: 4, hcp:  7 },
+          { BLACK: 160, GOLD: 136, WHITE: 119, BLUE: 103, RED:  85, par: 3, hcp: 15 },
+          { BLACK: 464, GOLD: 395, WHITE: 367, BLUE: 355, RED: 305, par: 4, hcp:  5 }
         ]
       }
     ]
@@ -688,7 +779,7 @@ function playerId() {
 }
 
 const playersRef = courseId => collection(db, 'courses', courseId, 'players');
-const playerRef  = courseId => doc(db, 'courses', courseId, 'players', playerId());
+const playerRef  = (courseId, id) => doc(db, 'courses', courseId, 'players', id || playerId());
 
 // ===========================================================================
 // SCORING
@@ -729,6 +820,11 @@ function showError(el, msg) {
 const state = {
   name: readStore(NAME_KEY),
   admin: false,
+  // Whose card the scorecard screen is editing. Your own, unless an admin
+  // opened someone else's from the Admin tab.
+  targetId: null,
+  targetName: null,
+  editingOther: false,
   courseId: null,
   course: null,
   holes: [],
@@ -765,6 +861,8 @@ function enterMenu() {
   // Send anything still sitting in a debounce window before we drop the course.
   flushAllWrites();
   if (unsubPlayers) { unsubPlayers(); unsubPlayers = null; }
+  stopAdminWatch();
+  state.editingOther = false;
   $('menu-name').textContent = state.name;
   applyAdminUI();
   showPage('page-menu');
@@ -791,6 +889,7 @@ $('menu-switch').addEventListener('click', () => {
 for (const btn of document.querySelectorAll('.menu-btn')) {
   btn.addEventListener('click', () => {
     if (btn.dataset.go === 'course') openCourse(btn.dataset.course);
+    else if (btn.dataset.go === 'admin') openAdmin();
     else { $('soon-title').textContent = btn.dataset.title; showPage('page-soon'); }
   });
 }
@@ -802,37 +901,161 @@ for (const btn of document.querySelectorAll('[data-back]')) {
 // ---------------------------------------------------------------------------
 // COURSE
 // ---------------------------------------------------------------------------
-function openCourse(courseId) {
+// ---------------------------------------------------------------------------
+// ADMIN
+// ---------------------------------------------------------------------------
+// Lets an admin open anybody's card and type on it. Worth restating what this
+// gate is and is not: with no auth, the rules cannot tell an admin from anyone
+// else, so this hides the screens rather than protecting the data.
+let unsubAdmin = null;
+
+function openAdmin() {
+  if (!state.admin) return;
+  buildAdminCourses();
+  stopAdminWatch();
+  $('admin-players-card').classList.add('hidden');
+  showPage('page-admin');
+}
+
+function stopAdminWatch() {
+  if (unsubAdmin) { unsubAdmin(); unsubAdmin = null; }
+}
+
+function buildAdminCourses() {
+  const box = $('admin-courses');
+  box.innerHTML = '';
+  for (const courseId of Object.keys(COURSES)) {
+    const course = COURSES[courseId];
+    const btn = document.createElement('button');
+    btn.className = 'menu-btn';
+    if (course.art) btn.dataset.art = course.art;
+    const strong = document.createElement('strong');
+    strong.textContent = course.name;
+    const span = document.createElement('span');
+    span.textContent = 'Choose a player';
+    btn.appendChild(strong);
+    btn.appendChild(span);
+    btn.addEventListener('click', () => watchAdminPlayers(courseId));
+    box.appendChild(btn);
+  }
+}
+
+function watchAdminPlayers(courseId) {
+  const course = COURSES[courseId];
+  const holes = flatHoles(course);
+  $('admin-players-title').textContent = course.name;
+  $('admin-players-card').classList.remove('hidden');
+
+  stopAdminWatch();
+  unsubAdmin = onSnapshot(playersRef(courseId), snap => {
+    const players = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    renderAdminPlayers(courseId, players, holes);
+  }, err => showError($('course-error'), friendly(err)));
+}
+
+function renderAdminPlayers(courseId, players, holes) {
+  const list = $('admin-players');
+  list.innerHTML = '';
+  $('admin-players-empty').classList.toggle('hidden', players.length > 0);
+
+  players.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+  for (const p of players) {
+    const scores = p.scores || {};
+    const btn = document.createElement('button');
+    btn.className = 'admin-row';
+
+    // Names are typed by players, so they go in as text, never as markup.
+    const nm = document.createElement('b');
+    nm.textContent = p.name || 'Player';
+    if (p.id === playerId()) {
+      const em = document.createElement('em');
+      em.textContent = ' (you)';
+      em.style.color = 'var(--muted)';
+      em.style.fontStyle = 'normal';
+      em.style.fontWeight = '400';
+      nm.appendChild(em);
+    }
+
+    const thru = document.createElement('span');
+    thru.className = 'thru';
+    thru.textContent = 'thru ' + holesPlayed(scores);
+
+    const tot = document.createElement('span');
+    tot.className = 'tot';
+    tot.textContent = sumScores(scores) + ' · ' + formatToPar(toPar(scores, holes));
+
+    btn.appendChild(nm);
+    btn.appendChild(thru);
+    btn.appendChild(tot);
+    btn.addEventListener('click', () => {
+      stopAdminWatch();
+      openCourse(courseId, { id: p.id, name: p.name || 'Player' });
+    });
+
+    const li = document.createElement('li');
+    li.appendChild(btn);
+    list.appendChild(li);
+  }
+}
+
+// Back out of a card to wherever you came from.
+$('course-back').addEventListener('click', () => {
+  if (state.editingOther) { flushAllWrites(); openAdmin(); }
+  else enterMenu();
+});
+
+// `target` is only passed by the Admin tab, to edit somebody else's card.
+function openCourse(courseId, target) {
   const course = COURSES[courseId];
   if (!course) return;
+
+  // Anything still in a debounce window belongs to the card we are leaving, so
+  // it has to go out before the target changes underneath it.
+  flushAllWrites();
 
   state.courseId = courseId;
   state.course = course;
   state.holes = flatHoles(course);
   state.scores = {};
+  state.targetId = target ? target.id : playerId();
+  state.targetName = target ? target.name : state.name;
+  state.editingOther = !!target;
 
   $('course-title').textContent = course.name;
-  $('course-who').textContent = state.name;
+  $('course-who').textContent = state.targetName;
   showError($('course-error'), '');
+
+  // Editing someone else is easy to forget you are doing, so it stays on screen.
+  const banner = $('editing-banner');
+  banner.classList.toggle('hidden', !state.editingOther);
+  banner.textContent = state.editingOther
+    ? 'Admin — editing ' + state.targetName + "'s card"
+    : '';
+
+  $('course-back').textContent = state.editingOther ? '← Admin' : '← Menu';
 
   buildHoleList(course);
   buildScorecard(course);
   refreshTotals();
   showPage('page-course');
 
-  // Register in the round. Not awaited on purpose: Firestore resolves a write
-  // only once the server acks it, so awaiting would hang the screen with no
-  // signal. The local write applies instantly and syncs when signal returns.
-  setDoc(playerRef(courseId), {
-    name: state.name.slice(0, 40),
-    updatedAt: serverTimestamp()
-  }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
+  // Join the round yourself. Skipped when editing someone else's card, so an
+  // admin looking at a player does not add an empty row of their own.
+  // Not awaited on purpose: Firestore resolves a write only once the server
+  // acks it, so awaiting would hang the screen with no signal.
+  if (!state.editingOther) {
+    setDoc(playerRef(courseId), {
+      name: state.name.slice(0, 40),
+      updatedAt: serverTimestamp()
+    }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
+  }
 
   if (unsubPlayers) unsubPlayers();
   unsubPlayers = onSnapshot(playersRef(courseId), snap => {
     const players = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     renderLeaderboard(players);
-    const me = players.find(p => p.id === playerId());
+    const me = players.find(p => p.id === state.targetId);
     if (me) {
       // Take the server's copy, but never let it overwrite a hole that is still
       // sitting in its debounce window: that edit is newer than anything the
@@ -890,20 +1113,29 @@ function buildHoleList(course) {
       const row = document.createElement('div');
       row.className = i % 2 ? 'hrow alt' : 'hrow';
 
+      // World Tour's card numbers each nine 1-9; Kings North runs 1-18 straight
+      // through. Each course says which in its own data.
       const num = document.createElement('div');
       num.className = 'hnum';
-      num.textContent = i + 1;   // numbered per nine, as the printed card is
+      num.textContent = course.numbering === 'per-nine' ? i + 1 : holeNo;
 
       const meta = document.createElement('div');
       const name = document.createElement('div');
       name.className = 'hname';
-      name.textContent = h.inspiredBy;
+      // The famous hole each one copies is World Tour's whole draw. Kings North
+      // has no such column, so par takes the headline rather than leaving a gap.
+      name.textContent = h.inspiredBy || ('Par ' + h.par);
+      if (!h.inspiredBy) name.classList.add('par-head');
       const stats = document.createElement('div');
       stats.className = 'hstats';
-      const parEl = document.createElement('b');
-      parEl.textContent = 'Par ' + h.par;
-      stats.appendChild(parEl);
-      stats.appendChild(document.createTextNode(' · Hcp ' + h.hcp));
+      if (h.inspiredBy) {
+        const parEl = document.createElement('b');
+        parEl.textContent = 'Par ' + h.par;
+        stats.appendChild(parEl);
+        stats.appendChild(document.createTextNode(' · Hcp ' + h.hcp));
+      } else {
+        stats.appendChild(document.createTextNode('Handicap ' + h.hcp));
+      }
 
       // Every tee's yardage, colour-coded as on the printed card. There is no
       // tee to pick, so all of them are simply shown.
@@ -1016,7 +1248,9 @@ function buildScorecard(course) {
     const rHole = table.insertRow();
     rHole.className = 'r-hole';
     addLabel(rHole, 'Hole');
-    for (let i = 1; i <= count; i++) addCell(rHole, String(i));
+    for (let i = 1; i <= count; i++) {
+      addCell(rHole, String(course.numbering === 'per-nine' ? i : holeOffset + i));
+    }
     addCell(rHole, nine.subtotal, 'sub');
 
     for (const tee of course.tees) {
@@ -1138,8 +1372,8 @@ function flushWrite(hole) {
   const value = state.scores[hole];
   const scorePatch = {};
   scorePatch[hole] = value === undefined ? deleteField() : value;
-  setDoc(playerRef(state.courseId), {
-    name: state.name.slice(0, 40),
+  setDoc(playerRef(state.courseId, state.targetId), {
+    name: (state.targetName || state.name).slice(0, 40),
     scores: scorePatch,
     updatedAt: serverTimestamp()
   }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
