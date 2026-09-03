@@ -1546,6 +1546,52 @@ function subscribeGlobal() {
   }
 }
 
+// One-off transition. Accounts used to be keyed by a random per-device id, so
+// anyone whose phone still holds one of those documents folds it into their
+// name-keyed account the first time they open this build. Without it, whatever
+// they entered on the old build would be stranded on a document nothing reads.
+//
+// Only ever touches documents whose name matches your own, and only the old
+// p_-prefixed ids.
+const isLegacyId = id => /^p_/.test(id || '');
+let legacyAbsorbed = false;
+
+async function absorbLegacy() {
+  const me = playerId();
+  if (legacyAbsorbed || !me) return;
+  legacyAbsorbed = true;
+  try {
+    for (const courseId of Object.keys(COURSES)) {
+      const mineRow = roster(courseId).find(x => x.id === me) || {};
+      for (const row of roster(courseId)) {
+        if (!isLegacyId(row.id) || nameKey(row.name) !== me) continue;
+        // Anything already on the name-keyed row wins; the legacy row only
+        // fills holes it does not have.
+        const merged = Object.assign({}, row.scores || {}, mineRow.scores || {});
+        await setDoc(playerRef(courseId, me),
+          { name: String(state.name).slice(0, 40), scores: merged }, { merge: true });
+        await deleteDoc(playerRef(courseId, row.id));
+      }
+    }
+    const mineDrinks = (state.drinks || []).find(x => x.id === me) || {};
+    for (const row of state.drinks || []) {
+      if (!isLegacyId(row.id) || nameKey(row.name) !== me) continue;
+      // Highest count per day, not the sum: the two documents are two views of
+      // the same person, so adding them would invent drinks.
+      const days = Object.assign({}, mineDrinks.days || {});
+      for (const key of Object.keys(row.days || {})) {
+        days[key] = Math.max(days[key] || 0, row.days[key] || 0);
+      }
+      await setDoc(drinkRef(me), {
+        name: String(state.name).slice(0, 40),
+        days: days,
+        log: (row.log || []).concat(mineDrinks.log || []).slice(-400)
+      }, { merge: true });
+      await deleteDoc(drinkRef(row.id));
+    }
+  } catch (e) { /* best effort; the next open tries again */ }
+}
+
 function roster(courseId) { return state.rosters[courseId] || []; }
 
 function nameOf(id) {
@@ -1568,6 +1614,7 @@ function allPlayers() {
 
 // Fans a data change out to whichever screen is showing.
 function onLiveData() {
+  absorbLegacy();
   const page = document.body.dataset.page;
   if (page === 'page-course' && state.courseId) {
     applyRoster();
