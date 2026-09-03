@@ -1213,36 +1213,35 @@ function partnerOf(playerIdValue, courseId) {
 // Every access is wrapped: localStorage throws outright in some private-
 // browsing modes, and the app should still work for that visit.
 const NAME_KEY = 'golfhq_name';
-const ID_KEY   = 'golfhq_player_id';
 
-// Names that get the admin screens. Matched case-insensitively on the name
-// typed at login, so "david", "David" and "DAVID " all land the same.
+// Identity is the NAME, not the device.
 //
-// Worth being clear about what this is and is not: with no auth and a page
-// anyone can view the source of, this gates the UI only. Anyone who types
-// "David" gets the admin screens, and Firestore will still accept their
-// writes, because the rules cannot tell players apart. Add more names here as
-// needed; if admin ever needs to be genuinely restricted, that means Firebase
-// Auth plus a uid check in the rules.
-const ADMIN_NAMES = ['david'];
-const isAdmin = name => !!name && ADMIN_NAMES.includes(name.trim().toLowerCase());
+// It used to be a random id minted per browser, which meant signing in on the
+// web and then installing the app to the home screen produced two separate
+// accounts with the same name on them. Keying the document by a slug of the
+// name makes one account per person that any device can sign into, which is
+// how everyone assumed it already worked.
+//
+// The trade is that there is nothing stopping someone typing another player's
+// name and landing in their account. With no auth that was always true of the
+// scores anyway, and this is a golf trip.
+function nameKey(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')     // spaces and punctuation collapse to one dash
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+/** This player's document id. Empty before anyone has signed in. */
+function playerId() {
+  return nameKey(state.name);
+}
 
 function readStore(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function writeStore(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function dropStore(k) { try { localStorage.removeItem(k); } catch (e) {} }
-
-let memoryId = null;
-function playerId() {
-  const stored = readStore(ID_KEY);
-  if (stored) return stored;
-  if (memoryId) return memoryId;
-  const fresh = 'p_' + (crypto.randomUUID
-    ? crypto.randomUUID().slice(0, 13)
-    : Math.random().toString(36).slice(2, 15));
-  writeStore(ID_KEY, fresh);
-  memoryId = fresh;
-  return fresh;
-}
 
 const playersRef = courseId => collection(db, 'courses', courseId, 'players');
 const playerRef  = (courseId, id) => doc(db, 'courses', courseId, 'players', id || playerId());
