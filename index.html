@@ -342,6 +342,28 @@
   }
   .hstats { font-size: 11px; color: #6E6A5E; margin-top: 1px; letter-spacing: .02em; }
   .hstats b { color: var(--par-red); font-weight: 700; }
+
+  .hyards { display: flex; gap: 4px; margin-top: 3px; }
+  .ychip {
+    padding: 0 5px; border-radius: 2px;
+    font-size: 10px; font-weight: 700; line-height: 1.6;
+    font-variant-numeric: tabular-nums; letter-spacing: .02em;
+    background: #E4E0D2; color: var(--card-ink);
+  }
+  .y-black  { background: var(--tee-black);  color: var(--card-paper); }
+  .y-gold   { background: var(--tee-gold);   color: var(--card-ink); }
+  .y-silver { background: var(--tee-silver); color: var(--card-ink); }
+
+  .yard-key {
+    display: flex; align-items: center; gap: 5px;
+    padding: 8px 12px;
+    background: #EDE9DB;
+    border-bottom: 1px solid #DAD5C6;
+  }
+  .yard-key em {
+    font-style: normal; font-size: 10px; font-weight: 400;
+    text-transform: uppercase; letter-spacing: .12em; color: #6E6A5E;
+  }
   .hentry { display: flex; align-items: center; gap: 6px; }
 
   /* Big enough to hit with a thumb, one-handed, in sunlight. */
@@ -836,6 +858,20 @@ function buildHoleList(course) {
   host.innerHTML = '';
   let holeOffset = 0;
 
+  // Names the colours once, so the chips on each row need no repeated labels.
+  const key = document.createElement('div');
+  key.className = 'yard-key';
+  for (const tee of course.tees) {
+    const chip = document.createElement('span');
+    chip.className = 'ychip y-' + tee.toLowerCase();
+    chip.textContent = tee;
+    key.appendChild(chip);
+  }
+  const cap = document.createElement('em');
+  cap.textContent = 'yardages';
+  key.appendChild(cap);
+  host.appendChild(key);
+
   for (const nine of course.nines) {
     const head = document.createElement('div');
     head.className = 'nine-head';
@@ -868,8 +904,21 @@ function buildHoleList(course) {
       parEl.textContent = 'Par ' + h.par;
       stats.appendChild(parEl);
       stats.appendChild(document.createTextNode(' · Hcp ' + h.hcp));
+
+      // Every tee's yardage, colour-coded as on the printed card. There is no
+      // tee to pick, so all of them are simply shown.
+      const yards = document.createElement('div');
+      yards.className = 'hyards';
+      for (const tee of course.tees) {
+        const chip = document.createElement('span');
+        chip.className = 'ychip y-' + tee.toLowerCase();
+        chip.textContent = h[tee];
+        yards.appendChild(chip);
+      }
+
       meta.appendChild(name);
       meta.appendChild(stats);
+      meta.appendChild(yards);
 
       const entry = document.createElement('div');
       entry.className = 'hentry';
