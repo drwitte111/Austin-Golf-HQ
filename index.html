@@ -140,7 +140,7 @@
   /* Grid and flex children default to min-width:auto, so an intrinsically wide
      child (the scorecard) would push its row past the edge instead of
      shrinking and scrolling. */
-  .card > *, .menu-grid > *, .totals-bar > * { min-width: 0; }
+  .card > *, .menu-grid > *, .totals-dock > * { min-width: 0; }
 
   header.masthead { text-align: center; margin-bottom: 20px; }
   header.masthead h1 { font-size: 25px; letter-spacing: .05em; text-transform: uppercase; }
@@ -286,27 +286,87 @@
 
   td.sub { background: #EFEFEF; font-weight: 700; }
 
+  /* The printed card's score row is read-only reference now; entry happens in
+     the vertical list above it. */
+  tr.r-score th.rowlab, tr.r-score td { background: #FFF8D6; font-weight: 700; }
+
+  /* VERTICAL HOLE LIST - the primary way scores get entered */
+  .nine-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin: 18px 0 4px; padding-bottom: 7px;
+    border-bottom: 1px solid rgba(255,255,255,.18);
+  }
+  .nine-head:first-child { margin-top: 0; }
+  .nine-head h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--sand); }
+  .nine-head span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .hrow {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+  .hnum {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.16);
+    font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums;
+  }
+  .hname { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hstats { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .hentry { display: flex; align-items: center; gap: 6px; }
+
+  /* Big enough to hit with a thumb, one-handed, in sunlight. */
+  .step {
+    width: 42px; height: 44px; flex: none;
+    border: 1px solid rgba(255,255,255,.2);
+    background: rgba(0,0,0,.25); color: var(--cream);
+    font-size: 20px; line-height: 1; font-weight: 600;
+  }
+  .step:active { background: var(--green); border-color: var(--green); }
+
   input.score {
-    width: 100%; min-width: 34px;
-    border: 0; background: #FFF8D6;
-    text-align: center; font: inherit; font-size: 16px; font-weight: 700;
-    padding: 7px 0; color: var(--card-ink);
+    width: 58px; height: 44px; flex: none;
+    border: 1px solid rgba(255,255,255,.22); border-radius: var(--radius);
+    background: rgba(0,0,0,.3); color: var(--cream);
+    text-align: center; font: inherit; font-size: 17px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
     -moz-appearance: textfield;
   }
-  input.score::-webkit-outer-spin-button, input.score::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-  input.score:focus-visible { outline: 2px solid var(--par-red); outline-offset: -2px; }
-  tr.r-score th.rowlab { background: #FFF8D6; }
-  tr.r-score td { padding: 0; background: #FFF8D6; }
+  input.score::-webkit-outer-spin-button,
+  input.score::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input.score:focus-visible { outline: 2px solid var(--light); outline-offset: 1px; }
+  /* Score relative to par, the way a golfer reads a card at a glance. */
+  input.score.eagle  { border-color: #E3B23C; box-shadow: inset 0 0 0 1px #E3B23C; }
+  input.score.birdie { border-color: var(--light); box-shadow: inset 0 0 0 1px var(--light); }
+  input.score.bogey  { border-color: #C98A3C; }
+  input.score.double { border-color: var(--rust); box-shadow: inset 0 0 0 1px var(--rust); }
 
-  .tee-pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-  .tee-pick > span { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
-  .tee-btn { padding: 8px 14px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.2); color: var(--cream); font-size: 13px; }
-  .tee-btn.active { background: var(--sand); border-color: var(--sand); color: #1A1A1A; font-weight: 700; }
+  /* STICKY TOTALS */
+  .totals-dock {
+    position: sticky; bottom: 0; z-index: 5;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    margin: 14px -14px 0;
+    background: rgba(255,255,255,.10);
+    border-top: 1px solid rgba(255,255,255,.16);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .totals-dock > div { background: #10281A; padding: 9px 4px 10px; text-align: center; }
+  .totals-dock span { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+  .totals-dock strong { display: block; font-size: 20px; margin-top: 2px; font-variant-numeric: tabular-nums; color: var(--sand); }
 
-  .totals-bar { display: flex; gap: 10px; flex-wrap: wrap; }
-  .tot-box { flex: 1; min-width: 88px; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.12); border-radius: var(--radius); padding: 12px; text-align: center; }
-  .tot-box span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-  .tot-box strong { display: block; font-size: 24px; margin-top: 3px; font-variant-numeric: tabular-nums; color: var(--sand); }
+  /* PRINTED CARD - collapsed reference, not the entry surface */
+  details.printed summary {
+    cursor: pointer; list-style: none;
+    font-size: 14px; text-transform: uppercase; letter-spacing: .09em; color: var(--sand);
+    min-height: 44px; display: flex; align-items: center;
+  }
+  details.printed summary::-webkit-details-marker { display: none; }
+  details.printed summary::after { content: ' ▾'; margin-left: 6px; }
+  details.printed[open] summary::after { content: ' ▴'; }
+  details.printed .muted { margin: 8px 0 12px; }
 
   ol.leaderboard { list-style: none; }
   ol.leaderboard li {
@@ -338,7 +398,6 @@
     table.card-table th, table.card-table td { min-width: 36px; font-size: 12px; padding: 4px 2px; }
     td.inspired { height: 116px; }
     td.inspired div { font-size: 10px; }
-    input.score { padding: 13px 0; font-size: 16px; }
     .tot-box strong { font-size: 21px; }
     ol.leaderboard li { grid-template-columns: 20px 1fr auto 40px 40px; font-size: 14px; }
   }
@@ -418,21 +477,32 @@
 
     <div id="course-error" class="error hidden"></div>
 
+    <!-- Entry runs down the page, one hole per row, so a phone held upright
+         never has to scroll sideways to reach hole 9. -->
     <div class="card">
-      <div class="tee-pick" id="tee-pick"><span>Tees</span></div>
-      <div id="scorecard"></div>
-      <div class="totals-bar">
-        <div class="tot-box"><span id="lab-out">Out</span><strong id="tot-out">0</strong></div>
-        <div class="tot-box"><span id="lab-in">In</span><strong id="tot-in">0</strong></div>
-        <div class="tot-box"><span>Total</span><strong id="tot-all">0</strong></div>
-        <div class="tot-box"><span>To par</span><strong id="tot-par">E</strong></div>
-      </div>
+      <div id="holelist"></div>
     </div>
+
+    <!-- The printed card is still here, just not in the way. Read-only. -->
+    <details class="card printed">
+      <summary>Printed scorecard</summary>
+      <p class="muted">The card as printed. Scrolls sideways &mdash; enter scores above.</p>
+      <div id="scorecard"></div>
+    </details>
 
     <div class="card">
       <h2>Live leaderboard</h2>
       <ol class="leaderboard" id="leaderboard"></ol>
       <p class="muted hidden" id="leaderboard-empty">Nobody has entered a score yet.</p>
+    </div>
+
+    <!-- Rides the bottom of the screen so your total is always visible without
+         scrolling back up. -->
+    <div class="totals-dock">
+      <div><span id="lab-out">Out</span><strong id="tot-out">0</strong></div>
+      <div><span id="lab-in">In</span><strong id="tot-in">0</strong></div>
+      <div><span>Total</span><strong id="tot-all">0</strong></div>
+      <div><span>To par</span><strong id="tot-par">E</strong></div>
     </div>
   </section>
 </div>
@@ -525,7 +595,6 @@ const MIN_STROKES = 1, MAX_STROKES = 20;
 // browsing modes, and the app should still work for that visit.
 const NAME_KEY = 'golfhq_name';
 const ID_KEY   = 'golfhq_player_id';
-const TEE_KEY  = 'golfhq_tee';
 
 // Names that get the admin screens. Matched case-insensitively on the name
 // typed at login, so "david", "David" and "DAVID " all land the same.
@@ -598,7 +667,6 @@ function showError(el, msg) {
 const state = {
   name: readStore(NAME_KEY),
   admin: false,
-  tee: readStore(TEE_KEY) || 'GOLD',
   courseId: null,
   course: null,
   holes: [],
@@ -685,7 +753,7 @@ function openCourse(courseId) {
   $('course-who').textContent = state.name;
   showError($('course-error'), '');
 
-  buildTeePicker(course);
+  buildHoleList(course);
   buildScorecard(course);
   refreshTotals();
   showPage('page-course');
@@ -695,7 +763,6 @@ function openCourse(courseId) {
   // signal. The local write applies instantly and syncs when signal returns.
   setDoc(playerRef(courseId), {
     name: state.name.slice(0, 40),
-    tee: state.tee,
     updatedAt: serverTimestamp()
   }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
 
@@ -712,27 +779,100 @@ function openCourse(courseId) {
   }, err => showError($('course-error'), friendly(err)));
 }
 
-function buildTeePicker(course) {
-  const box = $('tee-pick');
-  box.innerHTML = '<span>Tees</span>';
-  for (const tee of course.tees) {
-    const btn = document.createElement('button');
-    btn.className = 'tee-btn' + (tee === state.tee ? ' active' : '');
-    btn.textContent = tee;
-    btn.addEventListener('click', () => {
-      state.tee = tee;
-      writeStore(TEE_KEY, tee);
-      buildTeePicker(course);
-      highlightTee();
-      // setDoc+merge for the same reason as commit(): it works whether or not
-      // the row exists yet, so changing tees before your first score is safe.
-      setDoc(playerRef(state.courseId), {
-        name: state.name.slice(0, 40),
-        tee: tee,
-        updatedAt: serverTimestamp()
-      }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
+// The entry surface: one row per hole running down the page. A phone held
+// upright never scrolls sideways to reach a hole, which the printed-card table
+// below cannot avoid without shrinking the numbers past readable.
+function buildHoleList(course) {
+  const host = $('holelist');
+  host.innerHTML = '';
+  let holeOffset = 0;
+
+  for (const nine of course.nines) {
+    const head = document.createElement('div');
+    head.className = 'nine-head';
+    const h3 = document.createElement('h3');
+    h3.textContent = nine.title;
+    const sub = document.createElement('span');
+    sub.dataset.nineSub = nine.subtotal;
+    sub.textContent = nine.subtotal + ' —';
+    head.appendChild(h3);
+    head.appendChild(sub);
+    host.appendChild(head);
+
+    nine.holes.forEach((h, i) => {
+      const holeNo = holeOffset + i + 1;
+
+      const row = document.createElement('div');
+      row.className = 'hrow';
+
+      const num = document.createElement('div');
+      num.className = 'hnum';
+      num.textContent = i + 1;   // numbered per nine, as the printed card is
+
+      const meta = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'hname';
+      name.textContent = h.inspiredBy;
+      const stats = document.createElement('div');
+      stats.className = 'hstats';
+      stats.textContent = 'Par ' + h.par + ' · Hcp ' + h.hcp;
+      meta.appendChild(name);
+      meta.appendChild(stats);
+
+      const entry = document.createElement('div');
+      entry.className = 'hentry';
+
+      const minus = document.createElement('button');
+      minus.className = 'step';
+      minus.type = 'button';
+      minus.textContent = '−';
+      minus.setAttribute('aria-label', 'One fewer stroke on hole ' + holeNo);
+
+      const input = document.createElement('input');
+      input.className = 'score';
+      input.type = 'number';
+      input.inputMode = 'numeric';
+      input.min = MIN_STROKES;
+      input.max = MAX_STROKES;
+      input.dataset.hole = holeNo;
+      input.setAttribute('aria-label', 'Strokes on hole ' + holeNo);
+
+      const plus = document.createElement('button');
+      plus.className = 'step';
+      plus.type = 'button';
+      plus.textContent = '+';
+      plus.setAttribute('aria-label', 'One more stroke on hole ' + holeNo);
+
+      // Stepping from empty starts at par rather than 1. Most holes are played
+      // in par or near it, so one tap usually finishes the hole and the
+      // keyboard never has to appear.
+      const step = delta => {
+        const current = state.scores[holeNo];
+        const next = current === undefined
+          ? h.par
+          : Math.min(MAX_STROKES, Math.max(MIN_STROKES, current + delta));
+        input.value = next;
+        commit(holeNo, String(next));
+      };
+      minus.addEventListener('click', () => step(-1));
+      plus.addEventListener('click', () => step(1));
+
+      input.addEventListener('input', () => commit(holeNo, input.value));
+      // Moving off a hole means you are done with it - send it now rather than
+      // waiting out the debounce.
+      input.addEventListener('blur', () => flushWrite(holeNo));
+
+      entry.appendChild(minus);
+      entry.appendChild(input);
+      entry.appendChild(plus);
+
+      row.appendChild(num);
+      row.appendChild(meta);
+      row.appendChild(entry);
+      host.appendChild(row);
     });
-    box.appendChild(btn);
+
+    holeOffset += nine.holes.length;
   }
 }
 
@@ -781,7 +921,6 @@ function buildScorecard(course) {
     for (const tee of course.tees) {
       const r = table.insertRow();
       r.className = 'r-' + tee.toLowerCase();
-      r.dataset.tee = tee;
       addLabel(r, tee);
       let total = 0;
       nine.holes.forEach(h => { total += h[tee]; addCell(r, String(h[tee])); });
@@ -801,25 +940,14 @@ function buildScorecard(course) {
     nine.holes.forEach(h => addCell(rHcp, String(h.hcp)));
     addCell(rHcp, '');
 
-    // The row you actually fill in.
+    // Read-only mirror of what you entered above.
     const rScore = table.insertRow();
     rScore.className = 'r-score';
     addLabel(rScore, 'Score');
     nine.holes.forEach((h, i) => {
-      const holeNo = holeOffset + i + 1;
       const td = rScore.insertCell();
-      const input = document.createElement('input');
-      input.className = 'score';
-      input.type = 'number';
-      input.inputMode = 'numeric';
-      input.min = MIN_STROKES;
-      input.max = MAX_STROKES;
-      input.dataset.hole = holeNo;
-      input.addEventListener('input', () => commit(holeNo, input.value));
-      // Moving off a hole means you are done with it — send it now rather than
-      // waiting out the debounce.
-      input.addEventListener('blur', () => flushWrite(holeNo));
-      td.appendChild(input);
+      td.dataset.scoreCell = holeOffset + i + 1;
+      td.textContent = '';
     });
     const subCell = rScore.insertCell();
     subCell.className = 'sub';
@@ -833,7 +961,6 @@ function buildScorecard(course) {
     holeOffset += count;
   }
 
-  highlightTee();
 }
 
 function addLabel(row, text, extra) {
@@ -850,11 +977,6 @@ function addCell(row, text, cls) {
   return td;
 }
 
-function highlightTee() {
-  for (const r of document.querySelectorAll('#scorecard tr[data-tee]')) {
-    r.classList.toggle('tee-on', r.dataset.tee === state.tee);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // SCORE ENTRY
@@ -873,6 +995,9 @@ function commit(hole, raw) {
     state.scores[hole] = strokes;
   }
   refreshTotals();
+  // Repaints the birdie/bogey colouring and mirrors into the printed card
+  // straight away, rather than waiting for the write to echo back.
+  syncScoreInputs();
   queueWrite(hole);
 }
 
@@ -914,7 +1039,6 @@ function flushWrite(hole) {
   scorePatch[hole] = value === undefined ? deleteField() : value;
   setDoc(playerRef(state.courseId), {
     name: state.name.slice(0, 40),
-    tee: state.tee,
     scores: scorePatch,
     updatedAt: serverTimestamp()
   }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
@@ -930,13 +1054,32 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') flushAllWrites();
 });
 
-// Pushes server values back into the inputs, but never the one being typed in.
+// Pushes server values back into the inputs, but never the one being typed in,
+// and mirrors them into the read-only printed card.
 function syncScoreInputs() {
-  for (const input of document.querySelectorAll('#scorecard input.score')) {
-    if (input === document.activeElement) continue;
-    const val = state.scores[input.dataset.hole];
-    input.value = val === undefined ? '' : val;
+  for (const input of document.querySelectorAll('#holelist input.score')) {
+    const hole = input.dataset.hole;
+    const val = state.scores[hole];
+    if (input !== document.activeElement) input.value = val === undefined ? '' : val;
+    paintScore(input, hole, val);
   }
+  for (const cell of document.querySelectorAll('#scorecard [data-score-cell]')) {
+    const val = state.scores[cell.dataset.scoreCell];
+    cell.textContent = val === undefined ? '' : val;
+  }
+}
+
+// Colours a score against par the way a golfer reads a card at a glance.
+function paintScore(input, hole, val) {
+  input.classList.remove('eagle', 'birdie', 'bogey', 'double');
+  if (val === undefined) return;
+  const par = state.holes[Number(hole) - 1];
+  if (!par) return;
+  const diff = val - par.par;
+  if (diff <= -2) input.classList.add('eagle');
+  else if (diff === -1) input.classList.add('birdie');
+  else if (diff === 1) input.classList.add('bogey');
+  else if (diff >= 2) input.classList.add('double');
 }
 
 function refreshTotals() {
@@ -952,9 +1095,15 @@ function refreshTotals() {
   $('tot-all').textContent = out + inn;
   $('tot-par').textContent = formatToPar(toPar(state.scores, state.holes));
 
-  const subs = document.querySelectorAll('#scorecard [data-nine-sub]');
-  if (subs[0]) subs[0].textContent = out;
-  if (subs[1]) subs[1].textContent = inn;
+  // Per-nine subtotals, in both the hole list headers and the printed card.
+  const label = (el, i) => {
+    const total = i === 0 ? out : inn;
+    el.textContent = el.dataset.nineSub + ' ' + total;
+  };
+  document.querySelectorAll('#holelist [data-nine-sub]').forEach(label);
+  const cardSubs = document.querySelectorAll('#scorecard [data-nine-sub]');
+  if (cardSubs[0]) cardSubs[0].textContent = out;
+  if (cardSubs[1]) cardSubs[1].textContent = inn;
 }
 
 // ---------------------------------------------------------------------------
