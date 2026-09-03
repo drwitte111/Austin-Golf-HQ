@@ -1786,13 +1786,19 @@ function srow(cells, cls) {
   return row;
 }
 
-function nameCell(player) {
+function nameCell(player, suffix) {
   const frag = document.createDocumentFragment();
   // Names are typed by players, so they go in as text, never as markup.
   frag.appendChild(document.createTextNode(player.name || 'Player'));
   if (player.id === playerId()) {
     const em = document.createElement('em');
     em.textContent = ' (you)';
+    em.className = 'youtag';
+    frag.appendChild(em);
+  }
+  if (suffix) {
+    const em = document.createElement('em');
+    em.textContent = ' ' + suffix;
     em.className = 'youtag';
     frag.appendChild(em);
   }
@@ -1830,12 +1836,15 @@ function renderStrokes() {
     return { p: p, per: per, total: per.reduce((n, x) => n + x.total, 0),
              holes: per.reduce((n, x) => n + x.holes, 0) };
   });
-  rows.sort((x, y) => (y.holes && x.holes ? x.total - y.total : y.holes - x.holes) ||
+  // Holes played first, then strokes. Sorting purely on strokes floats whoever
+  // has played least to the top, which reads as if they are leading.
+  rows.sort((x, y) => y.holes - x.holes || x.total - y.total ||
     String(x.p.name || '').localeCompare(String(y.p.name || '')));
 
+  const full = flatHoles(COURSES[DAYS[0].courseId]).length * DAYS.length;
   for (const row of rows) {
     host.appendChild(srow([
-      nameCell(row.p),
+      nameCell(row.p, row.holes && row.holes < full ? 'thru ' + row.holes : ''),
       row.per[0].holes ? String(row.per[0].total) : '\u2014',
       row.per[1].holes ? String(row.per[1].total) : '\u2014',
       row.holes ? String(row.total) : '\u2014'
