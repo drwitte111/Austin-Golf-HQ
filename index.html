@@ -581,6 +581,49 @@
   tr.r-player td.eagle { text-decoration: underline; }
   tr.r-player td.double { text-decoration: underline; }
 
+  .srow {
+    display: grid; grid-template-columns: minmax(0,1fr) 68px 46px;
+    align-items: center; gap: 8px;
+    padding: 9px 8px; border-radius: 4px; font-size: 15px;
+  }
+  .srow.s4 { grid-template-columns: minmax(0,1fr) 52px 52px 56px; }
+  .srow > span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .srow > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .srow:nth-of-type(odd) { background: rgba(0,0,0,.18); }
+  .srow.me { box-shadow: inset 0 0 0 1px var(--light); }
+  .srow.shead, .srow.shead:nth-of-type(odd) {
+    background: transparent; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .10em; color: var(--muted); padding-bottom: 4px;
+  }
+  .srow.shead > span { font-weight: 600; }
+  .youtag { font-style: normal; color: var(--muted); font-weight: 400; }
+
+  .skin {
+    display: grid; grid-template-columns: 62px minmax(0,1fr) 34px;
+    align-items: center; gap: 8px;
+    padding: 9px 8px; border-radius: 4px; font-size: 14px;
+  }
+  .skin:nth-of-type(even) { background: rgba(0,0,0,.18); }
+  .skin-hole { color: var(--muted); font-size: 12px; }
+  .skin-duo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .skin-score {
+    text-align: center; font-weight: 700; font-variant-numeric: tabular-nums;
+    border: 2px solid transparent; border-radius: 3px; padding: 2px 0;
+  }
+  .skin-score.birdie, .skin-score.eagle { border-color: #FF8FA3; color: #FF8FA3; border-radius: 50%; }
+  .skin-score.bogey, .skin-score.double { border-color: var(--muted); }
+
+  .contest, .contest-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0; font-size: 14px;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+  }
+  .contest-row { border-bottom: 0; padding: 4px 0; }
+  .contest-what { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; }
+  .contest-who { font-weight: 700; color: var(--sand); }
+  .contest-who.pending { color: var(--muted); font-weight: 400; }
+  .contest-row select.pick { flex: none; width: 140px; }
+
   .duo-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .duo-tag {
     flex: none; width: 62px;
@@ -649,8 +692,8 @@
         <button class="menu-btn" data-go="overview">
           <strong>Live Scorecard</strong><span>Everyone's cards, hole by hole</span>
         </button>
-        <button class="menu-btn soon" data-go="soon" data-title="Stats">
-          <strong>Stats</strong><span>Coming soon</span>
+        <button class="menu-btn" data-go="stats">
+          <strong>Stats</strong><span>Standings, skins, contests</span>
         </button>
         <button class="menu-btn" data-go="course" data-course="world-tour-golf" data-art="world-tour">
           <strong>World Tour Golf</strong><span>Enter your scorecard</span>
@@ -674,6 +717,40 @@
     </div>
     <div class="card">
       <p class="muted">Not built yet. This screen is a placeholder.</p>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section class="page" id="page-stats">
+    <div class="topbar">
+      <button class="ghost" data-back>&larr; Menu</button>
+      <h2>Stats</h2>
+    </div>
+
+    <div class="card">
+      <h2>Standings</h2>
+      <div class="srow shead"><span>Player</span><span>W-L-P</span><span>Pts</span></div>
+      <div id="standings"></div>
+      <p class="muted hidden" id="standings-empty">No nine has finished yet.</p>
+    </div>
+
+    <div class="card">
+      <h2>Total strokes</h2>
+      <div class="srow shead s4"><span>Player</span><span>Day 1</span><span>Day 2</span><span>Total</span></div>
+      <div id="strokes"></div>
+      <p class="muted hidden" id="strokes-empty">Nobody has entered a score yet.</p>
+    </div>
+
+    <div class="card">
+      <h2>Skins</h2>
+      <p class="muted">A skin shows once every duo has that hole in.</p>
+      <div id="skins"></div>
+      <p class="muted hidden" id="skins-empty">No hole has every duo&rsquo;s score in yet.</p>
+    </div>
+
+    <div class="card">
+      <h2>Longest drive &amp; closest to pin</h2>
+      <div id="contest-results"></div>
     </div>
   </section>
 
@@ -720,6 +797,12 @@
       <p class="muted">Everyone who has signed in. Removing someone clears them and their scores from both courses.</p>
       <ol class="admin-list" id="admin-roster"></ol>
       <p class="muted hidden" id="admin-roster-empty">Nobody has signed in yet.</p>
+    </div>
+
+    <div class="card">
+      <h2>Longest drive &amp; closest to pin</h2>
+      <p class="muted">Holes are fixed. Just pick who won.</p>
+      <div id="contest-editor"></div>
     </div>
 
     <div class="card">
@@ -935,6 +1018,34 @@ const SEGMENTS = [
 ];
 
 const DUO_COUNT = 4;
+
+// Two longest drives and two closest to pins each day, one per nine. Longest
+// drives sit on par 5s, closest to pins on par 3s; the holes are fixed here so
+// the only thing anyone types on the day is the winner's name.
+const CONTESTS = [
+  { id: 'wt-ld-5',   day: 'day1', courseId: 'world-tour-golf', hole: 5,  type: 'ld'  },
+  { id: 'wt-ld-11',  day: 'day1', courseId: 'world-tour-golf', hole: 11, type: 'ld'  },
+  { id: 'wt-ctp-3',  day: 'day1', courseId: 'world-tour-golf', hole: 3,  type: 'ctp' },
+  { id: 'wt-ctp-12', day: 'day1', courseId: 'world-tour-golf', hole: 12, type: 'ctp' },
+  { id: 'kn-ld-6',   day: 'day2', courseId: 'kings-north',     hole: 6,  type: 'ld'  },
+  { id: 'kn-ld-15',  day: 'day2', courseId: 'kings-north',     hole: 15, type: 'ld'  },
+  { id: 'kn-ctp-4',  day: 'day2', courseId: 'kings-north',     hole: 4,  type: 'ctp' },
+  { id: 'kn-ctp-12', day: 'day2', courseId: 'kings-north',     hole: 12, type: 'ctp' }
+];
+const CONTEST_LABEL = { ld: 'Longest drive', ctp: 'Closest to pin' };
+
+/** Par, handicap and yardages for a hole number on a course. */
+function holeInfo(courseId, holeNo) {
+  const course = COURSES[courseId];
+  let n = 0;
+  for (const nine of course.nines) {
+    for (const h of nine.holes) {
+      n++;
+      if (n === holeNo) return { hole: h, course: course };
+    }
+  }
+  return null;
+}
 const scheduleRef = () => doc(db, 'config', 'schedule');
 
 function segmentsOfDay(dayId) { return SEGMENTS.filter(x => x.day === dayId); }
@@ -1126,13 +1237,19 @@ function tripRecords() {
   const rec = {};
   const bump = (id, key) => {
     if (!id) return;
-    if (!rec[id]) rec[id] = { w: 0, l: 0 };
+    if (!rec[id]) rec[id] = { w: 0, l: 0, p: 0 };
     rec[id][key]++;
   };
   for (const segment of SEGMENTS) {
     for (const m of matchesOf(segment)) {
       const res = playMatch(segment, m.a, m.b);
-      if (!res.complete || !res.winner) continue;
+      if (!res.complete) continue;
+      if (!res.winner) {
+        // Dead heat: every hole halved with identical totals. Should never
+        // happen with three tiers, but it counts as a push rather than nothing.
+        [m.a.p1, m.a.p2, m.b.p1, m.b.p2].forEach(id => bump(id, 'p'));
+        continue;
+      }
       const won  = res.winner === 'a' ? m.a : m.b;
       const lost = res.winner === 'a' ? m.b : m.a;
       bump(won.p1, 'w'); bump(won.p2, 'w');
@@ -1140,6 +1257,41 @@ function tripRecords() {
     }
   }
   return rec;
+}
+
+/** A win is a point, a push is half. */
+const pointsOf = r => r.w + (r.p || 0) * 0.5;
+const fmtPoints = n => (n % 1 ? n.toFixed(1) : String(n));
+
+/**
+ * Skins for one nine: on each hole the outright lowest duo takes it. A hole is
+ * only counted once every duo has that hole in, so nobody learns what a hole
+ * has been done in before playing it. Ties take no skin and do not carry.
+ */
+function skinsOf(segment) {
+  const course = COURSES[segment.courseId];
+  const duos = ((state.schedule[segment.day] || {}).duos || [])
+    .filter(d => d && d.p1 && d.p2);
+  if (duos.length < 2) return [];
+
+  const out = [];
+  for (const h of holesOfNine(course, segment.nine)) {
+    const rows = duos.map(d => ({ duo: d, score: duoScore(d, segment.courseId, h.holeNo) }));
+    if (rows.some(r => r.score === undefined)) continue;      // not every duo in yet
+
+    const best = Math.min.apply(null, rows.map(r => r.score));
+    const winners = rows.filter(r => r.score === best);
+    if (winners.length !== 1) continue;                        // tied: no skin
+    out.push({ holeNo: h.holeNo, par: h.par, score: best, duo: winners[0].duo });
+  }
+  return out;
+}
+
+/** Total strokes a player has entered on a course. */
+function strokesOn(courseId, playerIdValue) {
+  const row = roster(courseId).find(x => x.id === playerIdValue);
+  const scores = (row && row.scores) || {};
+  return { total: sumScores(scores), holes: holesPlayed(scores) };
 }
 
 function matchStatus(res, nameA, nameB) {
@@ -1256,9 +1408,12 @@ function onLiveData() {
   if (page === 'page-course' && state.courseId) {
     applyRoster();
     renderMatches();
+  } else if (page === 'page-stats') {
+    renderStats();
   } else if (page === 'page-admin') {
     renderAdminRoster();
     renderAdminPlayers();
+    renderContestEditor();
     renderMatchupEditor();
   } else if (page === 'page-cards') {
     renderCards();
@@ -1347,6 +1502,7 @@ for (const btn of document.querySelectorAll('.menu-btn')) {
     if (btn.dataset.go === 'course') openCourse(btn.dataset.course);
     else if (btn.dataset.go === 'admin') openAdmin();
     else if (btn.dataset.go === 'overview') openOverview();
+    else if (btn.dataset.go === 'stats') openStats();
     else { $('soon-title').textContent = btn.dataset.title; showPage('page-soon'); }
   });
 }
@@ -1605,6 +1761,201 @@ function renderCards() {
 $('cards-back').addEventListener('click', openOverview);
 
 // ---------------------------------------------------------------------------
+// STATS
+// ---------------------------------------------------------------------------
+function openStats() {
+  renderStats();
+  showPage('page-stats');
+}
+
+function renderStats() {
+  renderStandings();
+  renderStrokes();
+  renderSkins();
+  renderContestResults();
+}
+
+function srow(cells, cls) {
+  const row = document.createElement('div');
+  row.className = 'srow' + (cls ? ' ' + cls : '');
+  for (const c of cells) {
+    const span = document.createElement('span');
+    if (c instanceof Node) span.appendChild(c); else span.textContent = c;
+    row.appendChild(span);
+  }
+  return row;
+}
+
+function nameCell(player) {
+  const frag = document.createDocumentFragment();
+  // Names are typed by players, so they go in as text, never as markup.
+  frag.appendChild(document.createTextNode(player.name || 'Player'));
+  if (player.id === playerId()) {
+    const em = document.createElement('em');
+    em.textContent = ' (you)';
+    em.className = 'youtag';
+    frag.appendChild(em);
+  }
+  return frag;
+}
+
+function renderStandings() {
+  const rec = tripRecords();
+  const host = $('standings');
+  host.innerHTML = '';
+
+  const rows = allPlayers().map(p => ({ p: p, r: rec[p.id] || { w: 0, l: 0, p: 0 } }));
+  rows.sort((x, y) => pointsOf(y.r) - pointsOf(x.r) || x.r.l - y.r.l ||
+    String(x.p.name || '').localeCompare(String(y.p.name || '')));
+
+  $('standings-empty').classList.toggle('hidden',
+    rows.some(x => x.r.w + x.r.l + x.r.p > 0));
+
+  for (const row of rows) {
+    host.appendChild(srow(
+      [nameCell(row.p), row.r.w + '-' + row.r.l + '-' + (row.r.p || 0), fmtPoints(pointsOf(row.r))],
+      row.p.id === playerId() ? 'me' : ''));
+  }
+}
+
+function renderStrokes() {
+  const host = $('strokes');
+  host.innerHTML = '';
+  const players = allPlayers();
+  $('strokes-empty').classList.toggle('hidden', players.some(p =>
+    DAYS.some(d => strokesOn(d.courseId, p.id).holes > 0)));
+
+  const rows = players.map(p => {
+    const per = DAYS.map(d => strokesOn(d.courseId, p.id));
+    return { p: p, per: per, total: per.reduce((n, x) => n + x.total, 0),
+             holes: per.reduce((n, x) => n + x.holes, 0) };
+  });
+  rows.sort((x, y) => (y.holes && x.holes ? x.total - y.total : y.holes - x.holes) ||
+    String(x.p.name || '').localeCompare(String(y.p.name || '')));
+
+  for (const row of rows) {
+    host.appendChild(srow([
+      nameCell(row.p),
+      row.per[0].holes ? String(row.per[0].total) : '\u2014',
+      row.per[1].holes ? String(row.per[1].total) : '\u2014',
+      row.holes ? String(row.total) : '\u2014'
+    ], 's4' + (row.p.id === playerId() ? ' me' : '')));
+  }
+}
+
+function renderSkins() {
+  const host = $('skins');
+  host.innerHTML = '';
+  let any = false;
+
+  for (const segment of SEGMENTS) {
+    const skins = skinsOf(segment);
+    if (!skins.length) continue;
+    any = true;
+
+    const head = document.createElement('div');
+    head.className = 'seg-head';
+    head.textContent = COURSES[segment.courseId].name + ' \u2014 '
+      + COURSES[segment.courseId].nines[segment.nine].title;
+    host.appendChild(head);
+
+    for (const skin of skins) {
+      const row = document.createElement('div');
+      row.className = 'skin';
+
+      const hole = document.createElement('span');
+      hole.className = 'skin-hole';
+      hole.textContent = 'Hole ' + skin.holeNo;
+
+      const who = document.createElement('span');
+      who.className = 'skin-duo';
+      who.textContent = duoName(skin.duo);
+
+      const score = document.createElement('span');
+      score.className = 'skin-score';
+      const diff = skin.score - skin.par;
+      score.textContent = skin.score;
+      score.classList.add(diff <= -2 ? 'eagle' : diff === -1 ? 'birdie'
+        : diff === 1 ? 'bogey' : diff >= 2 ? 'double' : 'par');
+
+      row.appendChild(hole); row.appendChild(who); row.appendChild(score);
+      host.appendChild(row);
+    }
+  }
+  $('skins-empty').classList.toggle('hidden', any);
+}
+
+function contestLine(contest) {
+  const info = holeInfo(contest.courseId, contest.hole);
+  const tee = COURSES[contest.courseId].tees[0];
+  return CONTEST_LABEL[contest.type] + ' \u00b7 Hole ' + contest.hole
+    + ' (par ' + info.hole.par + ', ' + info.hole[tee] + ' yds)';
+}
+
+function renderContestResults() {
+  const host = $('contest-results');
+  host.innerHTML = '';
+  const winners = state.schedule.contests || {};
+
+  for (const day of DAYS) {
+    const head = document.createElement('div');
+    head.className = 'seg-head';
+    head.textContent = day.label;
+    host.appendChild(head);
+
+    for (const contest of CONTESTS.filter(c => c.day === day.id)) {
+      const row = document.createElement('div');
+      row.className = 'contest';
+
+      const what = document.createElement('span');
+      what.className = 'contest-what';
+      what.textContent = contestLine(contest);
+
+      const who = document.createElement('span');
+      who.className = 'contest-who';
+      const winner = winners[contest.id];
+      who.textContent = winner ? nameOf(winner) : 'Not yet';
+      if (!winner) who.classList.add('pending');
+
+      row.appendChild(what); row.appendChild(who);
+      host.appendChild(row);
+    }
+  }
+}
+
+// Admin side: the holes are fixed, so only the winner is chosen.
+function renderContestEditor() {
+  const host = $('contest-editor');
+  if (host.contains(document.activeElement)) return;   // do not close an open menu
+  host.innerHTML = '';
+  const winners = state.schedule.contests || {};
+
+  for (const day of DAYS) {
+    const head = document.createElement('div');
+    head.className = 'seg-head';
+    head.textContent = day.label;
+    host.appendChild(head);
+
+    for (const contest of CONTESTS.filter(c => c.day === day.id)) {
+      const row = document.createElement('div');
+      row.className = 'contest-row';
+
+      const what = document.createElement('span');
+      what.className = 'contest-what';
+      what.textContent = contestLine(contest);
+      row.appendChild(what);
+
+      row.appendChild(playerSelect(winners[contest.id] || '', value => {
+        const patch = { contests: {} };
+        patch.contests[contest.id] = value || null;
+        saveSchedule(patch);
+      }));
+      host.appendChild(row);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ADMIN
 // ---------------------------------------------------------------------------
 // Lets an admin open anybody's card and type on it. Worth restating what this
@@ -1772,6 +2123,7 @@ function openAdmin() {
   if (!state.admin) return;
   buildAdminCourses();
   renderAdminRoster();
+  renderContestEditor();
   renderMatchupEditor();
   adminCourseId = null;
   $('admin-players-card').classList.add('hidden');
