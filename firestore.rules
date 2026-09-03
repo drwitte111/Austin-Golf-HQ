@@ -40,6 +40,16 @@ service cloud.firestore {
       }
     }
 
+    // The trip schedule: who is partnered with whom each day, and which duo
+    // plays which duo on each nine. One small document, written from the Admin
+    // screen. As everywhere else here, the rules cannot tell an admin from
+    // anyone else, so this only enforces shape.
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if request.resource.data.size() <= 20;
+      allow delete: if false;
+    }
+
     // Nothing else in this project is used by the app.
     match /{document=**} {
       allow read, write: if false;

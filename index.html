@@ -505,6 +505,71 @@
   }
   .admin-del:hover { border-color: var(--rust); color: #FFB3A7; }
 
+  .partner {
+    background: rgba(46,125,79,.22); border: 1px solid var(--green);
+    color: var(--cream);
+    padding: 9px 12px; border-radius: var(--radius);
+    font-size: 13px; margin-bottom: 12px;
+  }
+
+  .seg-head {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .14em;
+    color: var(--sand); font-weight: 700;
+    padding-bottom: 6px; margin: 16px 0 10px;
+    border-bottom: 1px solid rgba(255,255,255,.16);
+  }
+  #matches .seg-head:first-child, #matchup-editor .seg-head:first-child { margin-top: 0; }
+  .nine-sub {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .10em;
+    color: var(--muted); margin: 14px 0 6px;
+  }
+
+  .match {
+    background: rgba(0,0,0,.22);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: var(--radius);
+    padding: 10px 12px; margin-bottom: 10px;
+  }
+  .match.mine { border-color: var(--light); }
+  .mside {
+    display: flex; justify-content: space-between; gap: 10px;
+    padding: 3px 0; font-size: 14px;
+  }
+  .mside b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mside span { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .mside.won b { color: var(--light); }
+  .mside.won span { color: var(--light); }
+  .mstatus {
+    margin-top: 7px; padding-top: 7px;
+    border-top: 1px solid rgba(255,255,255,.10);
+    font-size: 12px; color: var(--muted);
+  }
+  .mstatus.final { color: var(--sand); font-weight: 600; }
+
+  ol.records { list-style: none; }
+  ol.records li {
+    display: grid; grid-template-columns: 22px minmax(0,1fr) auto;
+    align-items: center; gap: 8px;
+    padding: 9px 8px; border-radius: 4px; font-size: 15px;
+  }
+  ol.records li:nth-child(odd) { background: rgba(0,0,0,.18); }
+  ol.records li.me { box-shadow: inset 0 0 0 1px var(--light); }
+  .wl { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--sand); }
+
+  .duo-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .duo-tag {
+    flex: none; width: 62px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+  }
+  .vs { flex: none; font-size: 12px; color: var(--muted); }
+  select.pick {
+    flex: 1; min-width: 0; height: 42px; padding: 0 8px;
+    font: inherit; font-size: 15px;
+    border: 1px solid rgba(255,255,255,.18); border-radius: var(--radius);
+    background: rgba(0,0,0,.30); color: var(--cream);
+  }
+  select.pick:focus-visible { outline: 2px solid var(--light); outline-offset: 1px; }
+
   .admin-list { list-style: none; }
   .admin-list li { margin-bottom: 8px; }
   .admin-row {
@@ -601,6 +666,12 @@
       <div class="menu-grid" id="admin-courses"></div>
     </div>
 
+    <div class="card">
+      <h2>Duos &amp; matchups</h2>
+      <p class="muted">Partners hold for the whole day. Opponents can change at the turn.</p>
+      <div id="matchup-editor"></div>
+    </div>
+
     <div class="card hidden" id="admin-players-card">
       <h2 id="admin-players-title">Players</h2>
       <ol class="admin-list" id="admin-players"></ol>
@@ -632,6 +703,7 @@
     </div>
 
     <div id="editing-banner" class="editing hidden"></div>
+    <div id="partner-line" class="partner hidden"></div>
     <div id="course-error" class="error hidden"></div>
 
     <!-- Entry runs down the page, one hole per row, so a phone held upright
@@ -646,9 +718,15 @@
     </details>
 
     <div class="card">
-      <h2>Live leaderboard</h2>
-      <ol class="leaderboard" id="leaderboard"></ol>
-      <p class="muted hidden" id="leaderboard-empty">Nobody has entered a score yet.</p>
+      <h2>Matches</h2>
+      <div id="matches"></div>
+      <p class="muted hidden" id="matches-empty">No matchups set for this course yet. An admin sets them on the Admin tab.</p>
+    </div>
+
+    <div class="card">
+      <h2>Records</h2>
+      <ol class="records" id="records"></ol>
+      <p class="muted hidden" id="records-empty">No nine has finished yet.</p>
     </div>
 
     <!-- Rides the bottom of the screen so your total is always visible without
@@ -666,7 +744,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
 import {
-  getFirestore, collection, doc, setDoc, deleteDoc, deleteField,
+  getFirestore, collection, doc, setDoc, deleteDoc, deleteField, writeBatch,
   onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
@@ -783,6 +861,56 @@ function flatHoles(course) {
 const MIN_STROKES = 1, MAX_STROKES = 20;
 
 // ===========================================================================
+// THE TRIP
+// ===========================================================================
+// Eight golfers, four duos. Two days of eighteen, and the nine-hole turn is a
+// break point: partners hold for the day, opponents can change at the split.
+// That makes four nine-hole matches, each duo vs duo, scramble, match play.
+const DAYS = [
+  { id: 'day1', courseId: 'world-tour-golf', label: 'Day 1 — World Tour Golf' },
+  { id: 'day2', courseId: 'kings-north',     label: 'Day 2 — New Kings North' }
+];
+
+const SEGMENTS = [
+  { id: 'wt-front', day: 'day1', courseId: 'world-tour-golf', nine: 0 },
+  { id: 'wt-back',  day: 'day1', courseId: 'world-tour-golf', nine: 1 },
+  { id: 'kn-front', day: 'day2', courseId: 'kings-north',     nine: 0 },
+  { id: 'kn-back',  day: 'day2', courseId: 'kings-north',     nine: 1 }
+];
+
+const DUO_COUNT = 4;
+const scheduleRef = () => doc(db, 'config', 'schedule');
+
+function segmentsOfDay(dayId) { return SEGMENTS.filter(x => x.day === dayId); }
+function dayOfCourse(courseId) { return DAYS.find(d => d.courseId === courseId); }
+
+/** Hole numbers (1-18) covered by a nine. */
+function holesOfNine(course, nineIndex) {
+  const offset = nineIndex === 0 ? 0 : course.nines[0].holes.length;
+  return course.nines[nineIndex].holes.map((h, i) => ({
+    holeNo: offset + i + 1, par: h.par, hcp: h.hcp
+  }));
+}
+
+/** The duo a player is in on a given day, or null. */
+function duoOf(playerIdValue, dayId, schedule) {
+  const duos = ((schedule || {})[dayId] || {}).duos || [];
+  for (const duo of duos) {
+    if (duo && (duo.p1 === playerIdValue || duo.p2 === playerIdValue)) return duo;
+  }
+  return null;
+}
+
+/** Your scramble partner for the day, or null if the pairing is not set yet. */
+function partnerOf(playerIdValue, courseId) {
+  const day = dayOfCourse(courseId);
+  if (!day) return null;
+  const duo = duoOf(playerIdValue, day.id, state.schedule);
+  if (!duo) return null;
+  return duo.p1 === playerIdValue ? duo.p2 : duo.p1;
+}
+
+// ===========================================================================
 // LOCAL IDENTITY
 // ===========================================================================
 // There is no Firebase Auth here, matching LaManna-Big-Year: "signing in" is
@@ -849,6 +977,138 @@ function toPar(scores, holes) {
 const formatToPar = d => d === 0 ? 'E' : (d > 0 ? '+' + d : String(d));
 
 // ===========================================================================
+// MATCH PLAY
+// ===========================================================================
+// A duo plays a scramble, so the pair share one score per hole. Both partners
+// hold the same number, so either one answers for the duo; whichever is present
+// is used, which also means a hole entered by one partner counts immediately.
+function duoScore(duo, courseId, holeNo) {
+  if (!duo) return undefined;
+  const list = roster(courseId);
+  const a = (list.find(p => p.id === duo.p1) || {}).scores || {};
+  const b = (list.find(p => p.id === duo.p2) || {}).scores || {};
+  return a[holeNo] !== undefined ? a[holeNo] : b[holeNo];
+}
+
+const ordinal = n => {
+  const suf = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (suf[(v - 20) % 10] || suf[v] || suf[0]);
+};
+
+/**
+ * Plays one nine between two duos.
+ * Holes won decides it. Level after nine goes to total strokes, and level again
+ * goes to skins walked from the hardest hole down - the first hole one duo beat
+ * the other on outright takes the match.
+ */
+function playMatch(segment, duoA, duoB) {
+  const course = COURSES[segment.courseId];
+  const holes = holesOfNine(course, segment.nine);
+
+  let upA = 0, upB = 0, strokesA = 0, strokesB = 0;
+  const played = [];
+
+  for (const h of holes) {
+    const sa = duoScore(duoA, segment.courseId, h.holeNo);
+    const sb = duoScore(duoB, segment.courseId, h.holeNo);
+    if (sa === undefined || sb === undefined) continue;   // not both in yet
+    played.push({ holeNo: h.holeNo, hcp: h.hcp, sa: sa, sb: sb });
+    strokesA += sa;
+    strokesB += sb;
+    if (sa < sb) upA++;
+    else if (sb < sa) upB++;
+  }
+
+  const complete = played.length === holes.length;
+  const result = {
+    thru: played.length, total: holes.length, complete: complete,
+    upA: upA, upB: upB, strokesA: strokesA, strokesB: strokesB,
+    winner: null, decidedBy: null
+  };
+
+  if (upA !== upB) {
+    result.winner = upA > upB ? 'a' : 'b';
+    result.decidedBy = 'holes';
+    return result;
+  }
+  if (!complete) return result;                       // level, still playing
+
+  if (strokesA !== strokesB) {
+    result.winner = strokesA < strokesB ? 'a' : 'b';
+    result.decidedBy = 'strokes';
+    return result;
+  }
+
+  const hardestFirst = played.slice().sort((x, y) => x.hcp - y.hcp);
+  for (const h of hardestFirst) {
+    if (h.sa !== h.sb) {
+      result.winner = h.sa < h.sb ? 'a' : 'b';
+      result.decidedBy = 'skin';
+      result.skinHole = h.holeNo;
+      return result;
+    }
+  }
+  // Every hole halved and identical totals. Vanishingly unlikely, but it must
+  // not silently invent a winner.
+  result.decidedBy = 'dead-heat';
+  return result;
+}
+
+/** The duos configured for a segment, as [{a, b}, ...]. */
+function matchesOf(segment) {
+  const cfg = state.schedule[segment.id] || {};
+  const duos = (state.schedule[segment.day] || {}).duos || [];
+  return (cfg.matches || [])
+    .map(m => ({ a: duos[m.a], b: duos[m.b] }))
+    .filter(m => m.a && m.b && m.a.p1 && m.a.p2 && m.b.p1 && m.b.p2);
+}
+
+const duoName = duo => duo ? nameOf(duo.p1) + ' & ' + nameOf(duo.p2) : '—';
+
+/** W-L per player across the whole trip, counting only finished nines. */
+function tripRecords() {
+  const rec = {};
+  const bump = (id, key) => {
+    if (!id) return;
+    if (!rec[id]) rec[id] = { w: 0, l: 0 };
+    rec[id][key]++;
+  };
+  for (const segment of SEGMENTS) {
+    for (const m of matchesOf(segment)) {
+      const res = playMatch(segment, m.a, m.b);
+      if (!res.complete || !res.winner) continue;
+      const won  = res.winner === 'a' ? m.a : m.b;
+      const lost = res.winner === 'a' ? m.b : m.a;
+      bump(won.p1, 'w'); bump(won.p2, 'w');
+      bump(lost.p1, 'l'); bump(lost.p2, 'l');
+    }
+  }
+  return rec;
+}
+
+function matchStatus(res, nameA, nameB) {
+  if (res.thru === 0) return 'Not started';
+  const lead = Math.abs(res.upA - res.upB);
+  const leader = res.upA > res.upB ? nameA : nameB;
+
+  if (!res.complete) {
+    return lead === 0
+      ? 'All square thru ' + res.thru
+      : leader + ' ' + lead + ' up thru ' + res.thru;
+  }
+  if (res.decidedBy === 'holes') return leader + ' wins ' + lead + ' up';
+  if (res.decidedBy === 'strokes') {
+    return (res.winner === 'a' ? nameA : nameB)
+      + ' wins on total (' + Math.min(res.strokesA, res.strokesB) + ')';
+  }
+  if (res.decidedBy === 'skin') {
+    return (res.winner === 'a' ? nameA : nameB)
+      + ' wins on a skin at the ' + ordinal(res.skinHole);
+  }
+  return 'Dead heat — every hole halved';
+}
+
+// ===========================================================================
 // SCREENS
 // ===========================================================================
 const $ = id => document.getElementById(id);
@@ -871,12 +1131,15 @@ const state = {
   targetId: null,
   targetName: null,
   editingOther: false,
+  // Whole-trip data, kept live for every screen rather than re-subscribed per
+  // page: the schedule is one small document and each roster is eight rows.
+  schedule: {},
+  rosters: {},
   courseId: null,
   course: null,
   holes: [],
   scores: {}
 };
-let unsubPlayers = null;
 
 // Firestore errors are precise but not plain English. Translate the handful a
 // player can actually cause into something actionable.
@@ -886,6 +1149,77 @@ function friendly(err) {
   if (code === 'unavailable') return 'Cannot reach Firestore - scores are saved on this phone and will sync when signal returns.';
   if (code === 'failed-precondition' || code === 'not-found') return 'The Firestore database is not set up yet for project golf-hq.';
   return (err && err.message) || 'Something went wrong.';
+}
+
+// ---------------------------------------------------------------------------
+// LIVE DATA
+// ---------------------------------------------------------------------------
+// Matches and records span both courses, so every screen reads from one set of
+// listeners rather than each subscribing to the slice it happens to need.
+let unsubGlobal = [];
+
+function subscribeGlobal() {
+  if (unsubGlobal.length) return;
+
+  unsubGlobal.push(onSnapshot(scheduleRef(), snap => {
+    state.schedule = snap.exists() ? snap.data() : {};
+    onLiveData();
+  }, err => showError($('course-error'), friendly(err))));
+
+  for (const courseId of Object.keys(COURSES)) {
+    unsubGlobal.push(onSnapshot(playersRef(courseId), snap => {
+      state.rosters[courseId] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+      onLiveData();
+    }, err => showError($('course-error'), friendly(err))));
+  }
+}
+
+function roster(courseId) { return state.rosters[courseId] || []; }
+
+function nameOf(id) {
+  for (const courseId of Object.keys(COURSES)) {
+    const found = roster(courseId).find(p => p.id === id);
+    if (found && found.name) return found.name;
+  }
+  return 'Player';
+}
+
+/** Everyone in the trip, deduplicated across courses. */
+function allPlayers() {
+  const seen = new Map();
+  for (const courseId of Object.keys(COURSES)) {
+    for (const p of roster(courseId)) if (!seen.has(p.id)) seen.set(p.id, p);
+  }
+  return [...seen.values()].sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || '')));
+}
+
+// Fans a data change out to whichever screen is showing.
+function onLiveData() {
+  const page = document.body.dataset.page;
+  if (page === 'page-course' && state.courseId) {
+    applyRoster();
+    renderMatches();
+  } else if (page === 'page-admin') {
+    renderAdminPlayers();
+    renderMatchupEditor();
+  }
+}
+
+// Pulls the target player's scores off the roster into the entry screen.
+function applyRoster() {
+  const me = roster(state.courseId).find(p => p.id === state.targetId);
+  const server = me ? (me.scores || {}) : {};
+  // Never let the server overwrite a hole still sitting in its debounce window:
+  // that edit is newer than anything the server can report yet.
+  const merged = Object.assign({}, server);
+  for (const hole of pendingWrites.keys()) {
+    if (state.scores[hole] === undefined) delete merged[hole];
+    else merged[hole] = state.scores[hole];
+  }
+  state.scores = merged;
+  syncScoreInputs();
+  refreshTotals();
 }
 
 // Puts you on every course the moment you have a name, rather than only the
@@ -913,6 +1247,7 @@ $('login-go').addEventListener('click', () => {
   state.name = name;
   writeStore(NAME_KEY, name);
   registerEverywhere();
+  subscribeGlobal();
   enterMenu();
 });
 $('login-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-go').click(); });
@@ -923,8 +1258,7 @@ $('login-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('log
 function enterMenu() {
   // Send anything still sitting in a debounce window before we drop the course.
   flushAllWrites();
-  if (unsubPlayers) { unsubPlayers(); unsubPlayers = null; }
-  stopAdminWatch();
+  adminCourseId = null;
   state.editingOther = false;
   $('menu-name').textContent = state.name;
   applyAdminUI();
@@ -965,23 +1299,243 @@ for (const btn of document.querySelectorAll('[data-back]')) {
 // COURSE
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// MATCHES + RECORDS
+// ---------------------------------------------------------------------------
+function renderMatches() {
+  const host = $('matches');
+  host.innerHTML = '';
+
+  const mine = state.targetId || playerId();
+  const mate = partnerOf(mine, state.courseId);
+  const line = $('partner-line');
+  line.classList.toggle('hidden', !mate);
+  if (mate) line.textContent = 'Scramble with ' + nameOf(mate);
+
+  let any = false;
+  for (const segment of SEGMENTS.filter(x => x.courseId === state.courseId)) {
+    const list = matchesOf(segment);
+    if (!list.length) continue;
+    any = true;
+
+    const head = document.createElement('div');
+    head.className = 'seg-head';
+    head.textContent = COURSES[segment.courseId].nines[segment.nine].title;
+    host.appendChild(head);
+
+    for (const m of list) {
+      const res = playMatch(segment, m.a, m.b);
+      const na = duoName(m.a), nb = duoName(m.b);
+
+      const box = document.createElement('div');
+      box.className = 'match';
+      if ([m.a.p1, m.a.p2, m.b.p1, m.b.p2].indexOf(mine) !== -1) box.classList.add('mine');
+
+      const side = (name, strokes, isWinner) => {
+        const row = document.createElement('div');
+        row.className = 'mside' + (isWinner ? ' won' : '');
+        const b = document.createElement('b');
+        b.textContent = name;
+        const sp = document.createElement('span');
+        sp.textContent = res.thru ? strokes : '';
+        row.appendChild(b); row.appendChild(sp);
+        return row;
+      };
+      box.appendChild(side(na, res.strokesA, res.complete && res.winner === 'a'));
+      box.appendChild(side(nb, res.strokesB, res.complete && res.winner === 'b'));
+
+      const status = document.createElement('div');
+      status.className = 'mstatus' + (res.complete && res.winner ? ' final' : '');
+      status.textContent = matchStatus(res, na, nb);
+      box.appendChild(status);
+
+      host.appendChild(box);
+    }
+  }
+  $('matches-empty').classList.toggle('hidden', any);
+  renderRecords();
+}
+
+function renderRecords() {
+  const rec = tripRecords();
+  const list = $('records');
+  list.innerHTML = '';
+
+  const rows = allPlayers().map(p => ({ p: p, r: rec[p.id] || { w: 0, l: 0 } }));
+  rows.sort((x, y) =>
+    (y.r.w - x.r.w) || (x.r.l - y.r.l) ||
+    String(x.p.name || '').localeCompare(String(y.p.name || '')));
+
+  $('records-empty').classList.toggle('hidden', rows.some(x => x.r.w + x.r.l > 0));
+
+  rows.forEach((row, i) => {
+    const li = document.createElement('li');
+    if (row.p.id === playerId()) li.className = 'me';
+
+    const rank = document.createElement('span');
+    rank.className = 'rank';
+    rank.textContent = i + 1;
+
+    // Names are typed by players, so they go in as text, never as markup.
+    const who = document.createElement('span');
+    who.className = 'who2';
+    who.textContent = row.p.name || 'Player';
+    if (row.p.id === playerId()) {
+      const em = document.createElement('em');
+      em.textContent = ' (you)';
+      who.appendChild(em);
+    }
+
+    const wl = document.createElement('span');
+    wl.className = 'wl';
+    wl.textContent = row.r.w + '-' + row.r.l;
+
+    li.appendChild(rank); li.appendChild(who); li.appendChild(wl);
+    list.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // ADMIN
 // ---------------------------------------------------------------------------
 // Lets an admin open anybody's card and type on it. Worth restating what this
 // gate is and is not: with no auth, the rules cannot tell an admin from anyone
 // else, so this hides the screens rather than protecting the data.
-let unsubAdmin = null;
+let adminCourseId = null;
+
+// The trip is configured here: four duos per day, then which duo meets which on
+// each nine. Everything writes straight to config/schedule as it is changed.
+function saveSchedule(patch) {
+  setDoc(scheduleRef(), patch, { merge: true })
+    .catch(err => showError($('course-error'), friendly(err)));
+}
+
+function playerSelect(value, onChange) {
+  const sel = document.createElement('select');
+  sel.className = 'pick';
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = '—';
+  sel.appendChild(blank);
+  for (const p of allPlayers()) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name || 'Player';
+    sel.appendChild(opt);
+  }
+  sel.value = value || '';
+  sel.addEventListener('change', () => onChange(sel.value));
+  return sel;
+}
+
+function duoSelect(duos, value, onChange) {
+  const sel = document.createElement('select');
+  sel.className = 'pick';
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = '—';
+  sel.appendChild(blank);
+  duos.forEach((duo, i) => {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = 'Duo ' + (i + 1) + (duo && duo.p1 && duo.p2 ? ' — ' + duoName(duo) : '');
+    sel.appendChild(opt);
+  });
+  sel.value = value === undefined || value === null ? '' : String(value);
+  sel.addEventListener('change', () => onChange(sel.value === '' ? null : Number(sel.value)));
+  return sel;
+}
+
+function currentDuos(dayId) {
+  const stored = ((state.schedule[dayId] || {}).duos || []).slice();
+  while (stored.length < DUO_COUNT) stored.push({ p1: '', p2: '' });
+  return stored.slice(0, DUO_COUNT).map(d => ({ p1: (d && d.p1) || '', p2: (d && d.p2) || '' }));
+}
+
+function renderMatchupEditor() {
+  const host = $('matchup-editor');
+  // Rebuilding while a dropdown is open would close it mid-choice.
+  if (host.contains(document.activeElement)) return;
+  host.innerHTML = '';
+
+  for (const day of DAYS) {
+    const duos = currentDuos(day.id);
+
+    const dayHead = document.createElement('div');
+    dayHead.className = 'seg-head';
+    dayHead.textContent = day.label;
+    host.appendChild(dayHead);
+
+    duos.forEach((duo, i) => {
+      const row = document.createElement('div');
+      row.className = 'duo-row';
+
+      const tag = document.createElement('span');
+      tag.className = 'duo-tag';
+      tag.textContent = 'Duo ' + (i + 1);
+
+      const write = (slot, value) => {
+        const next = currentDuos(day.id);
+        next[i][slot] = value;
+        const patch = {};
+        patch[day.id] = { duos: next };
+        saveSchedule(patch);
+      };
+
+      row.appendChild(tag);
+      row.appendChild(playerSelect(duo.p1, v => write('p1', v)));
+      row.appendChild(playerSelect(duo.p2, v => write('p2', v)));
+      host.appendChild(row);
+    });
+
+    for (const segment of segmentsOfDay(day.id)) {
+      const nineHead = document.createElement('div');
+      nineHead.className = 'nine-sub';
+      nineHead.textContent = COURSES[segment.courseId].nines[segment.nine].title;
+      host.appendChild(nineHead);
+
+      const stored = ((state.schedule[segment.id] || {}).matches || []).slice();
+      while (stored.length < 2) stored.push({ a: null, b: null });
+
+      stored.slice(0, 2).forEach((m, mi) => {
+        const row = document.createElement('div');
+        row.className = 'duo-row';
+
+        const tag = document.createElement('span');
+        tag.className = 'duo-tag';
+        tag.textContent = 'Match ' + (mi + 1);
+
+        const write = (slot, value) => {
+          const next = stored.slice(0, 2).map(x => ({ a: x.a, b: x.b }));
+          next[mi][slot] = value;
+          const patch = {};
+          // Firestore rejects undefined, so an unset side is stored as null.
+          patch[segment.id] = { matches: next.map(x => ({
+            a: x.a === undefined ? null : x.a,
+            b: x.b === undefined ? null : x.b
+          })) };
+          saveSchedule(patch);
+        };
+
+        row.appendChild(tag);
+        row.appendChild(duoSelect(duos, m.a, v => write('a', v)));
+        const vs = document.createElement('span');
+        vs.className = 'vs';
+        vs.textContent = 'v';
+        row.appendChild(vs);
+        row.appendChild(duoSelect(duos, m.b, v => write('b', v)));
+        host.appendChild(row);
+      });
+    }
+  }
+}
 
 function openAdmin() {
   if (!state.admin) return;
   buildAdminCourses();
-  stopAdminWatch();
+  renderMatchupEditor();
+  adminCourseId = null;
   $('admin-players-card').classList.add('hidden');
   showPage('page-admin');
-}
-
-function stopAdminWatch() {
-  if (unsubAdmin) { unsubAdmin(); unsubAdmin = null; }
 }
 
 function buildAdminCourses() {
@@ -1004,19 +1558,17 @@ function buildAdminCourses() {
 }
 
 function watchAdminPlayers(courseId) {
-  const course = COURSES[courseId];
-  const holes = flatHoles(course);
-  $('admin-players-title').textContent = course.name;
+  adminCourseId = courseId;
+  $('admin-players-title').textContent = COURSES[courseId].name;
   $('admin-players-card').classList.remove('hidden');
-
-  stopAdminWatch();
-  unsubAdmin = onSnapshot(playersRef(courseId), snap => {
-    const players = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
-    renderAdminPlayers(courseId, players, holes);
-  }, err => showError($('course-error'), friendly(err)));
+  renderAdminPlayers();
 }
 
-function renderAdminPlayers(courseId, players, holes) {
+function renderAdminPlayers() {
+  if (!adminCourseId) return;
+  const courseId = adminCourseId;
+  const holes = flatHoles(COURSES[courseId]);
+  const players = roster(courseId).slice();
   const list = $('admin-players');
   list.innerHTML = '';
   $('admin-players-empty').classList.toggle('hidden', players.length > 0);
@@ -1052,7 +1604,6 @@ function renderAdminPlayers(courseId, players, holes) {
     btn.appendChild(thru);
     btn.appendChild(tot);
     btn.addEventListener('click', () => {
-      stopAdminWatch();
       openCourse(courseId, { id: p.id, name: p.name || 'Player' });
     });
 
@@ -1165,26 +1716,8 @@ function openCourse(courseId, target) {
   showPage('page-course');
 
 
-  if (unsubPlayers) unsubPlayers();
-  unsubPlayers = onSnapshot(playersRef(courseId), snap => {
-    const players = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
-    renderLeaderboard(players);
-    const me = players.find(p => p.id === state.targetId);
-    if (me) {
-      // Take the server's copy, but never let it overwrite a hole that is still
-      // sitting in its debounce window: that edit is newer than anything the
-      // server can tell us yet. Replacing wholesale here silently erased holes
-      // when someone entered several in quick succession.
-      const merged = Object.assign({}, me.scores || {});
-      for (const hole of pendingWrites.keys()) {
-        if (state.scores[hole] === undefined) delete merged[hole];
-        else merged[hole] = state.scores[hole];
-      }
-      state.scores = merged;
-      syncScoreInputs();
-      refreshTotals();
-    }
-  }, err => showError($('course-error'), friendly(err)));
+  applyRoster();
+  renderMatches();
 }
 
 // The entry surface: one row per hole running down the page. A phone held
@@ -1486,11 +2019,29 @@ function flushWrite(hole) {
   const value = state.scores[hole];
   const scorePatch = {};
   scorePatch[hole] = value === undefined ? deleteField() : value;
-  setDoc(playerRef(state.courseId, state.targetId), {
-    name: (state.targetName || state.name).slice(0, 40),
-    scores: scorePatch,
-    updatedAt: serverTimestamp()
-  }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
+
+  // Scramble: the duo plays one ball, so the hole lands on both partners. They
+  // go in a single batch, because a half-written hole would put two partners on
+  // different scores and quietly corrupt the match.
+  //
+  // Each row keeps its own name - writing the entering player's name onto their
+  // partner would rename them.
+  const targets = [state.targetId];
+  const mate = partnerOf(state.targetId, state.courseId);
+  if (mate) targets.push(mate);
+
+  const batch = writeBatch(db);
+  for (const id of targets) {
+    const label = id === state.targetId
+      ? (state.targetName || state.name)
+      : nameOf(id);
+    batch.set(playerRef(state.courseId, id), {
+      name: String(label).slice(0, 40),
+      scores: scorePatch,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
+  batch.commit().catch(err => showError($('course-error'), friendly(err)));
 }
 
 function flushAllWrites() {
@@ -1562,59 +2113,6 @@ function refreshTotals() {
 // ---------------------------------------------------------------------------
 // LEADERBOARD
 // ---------------------------------------------------------------------------
-function renderLeaderboard(players) {
-  // Best score relative to par first; ties broken by who has played further.
-  const sorted = players.slice().sort((a, b) => {
-    const sa = a.scores || {}, sb = b.scores || {};
-    const d = toPar(sa, state.holes) - toPar(sb, state.holes);
-    return d !== 0 ? d : holesPlayed(sb) - holesPlayed(sa);
-  });
-
-  $('leaderboard-empty').classList.toggle('hidden', sorted.length > 0);
-  const list = $('leaderboard');
-  list.innerHTML = '';
-
-  sorted.forEach((p, i) => {
-    const scores = p.scores || {};
-    const mine = p.id === playerId();
-
-    const li = document.createElement('li');
-    if (mine) li.className = 'me';
-
-    const rank = document.createElement('span');
-    rank.className = 'rank';
-    rank.textContent = i + 1;
-
-    // Names are typed by other players, so they go in as text, never as markup.
-    const who = document.createElement('span');
-    who.className = 'who2';
-    who.textContent = p.name || 'Player';
-    if (mine) {
-      const em = document.createElement('em');
-      em.textContent = ' (you)';
-      who.appendChild(em);
-    }
-
-    const thru = document.createElement('span');
-    thru.className = 'thru';
-    thru.textContent = 'thru ' + holesPlayed(scores);
-
-    const strokes = document.createElement('span');
-    strokes.className = 'strokes';
-    strokes.textContent = sumScores(scores);
-
-    const topar = document.createElement('span');
-    topar.className = 'topar';
-    topar.textContent = formatToPar(toPar(scores, state.holes));
-
-    li.appendChild(rank);
-    li.appendChild(who);
-    li.appendChild(thru);
-    li.appendChild(strokes);
-    li.appendChild(topar);
-    list.appendChild(li);
-  });
-}
 
 // ---------------------------------------------------------------------------
 // BOOT
@@ -1622,6 +2120,7 @@ function renderLeaderboard(players) {
 (function boot() {
   if (!state.name) { showPage('page-login'); return; }
   registerEverywhere();
+  subscribeGlobal();
   enterMenu();
 })();
 </script>
