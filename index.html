@@ -2959,13 +2959,15 @@ function duoSelect(duos, value, onChange) {
 // write carried a stale copy of the first, silently undoing it - which is why
 // entries did not always take.
 let draft = null;
+let draftKeys = {};
 
 function working() {
   return draft || state.schedule || {};
 }
 
-function beginEdit() {
-  if (!draft) draft = JSON.parse(JSON.stringify(state.schedule || {}));
+function beginEdit(key) {
+  if (!draft) { draft = JSON.parse(JSON.stringify(state.schedule || {})); draftKeys = {}; }
+  if (key) draftKeys[key] = 1;
   return draft;
 }
 
@@ -2977,6 +2979,7 @@ function markDirty() {
 
 function markClean(text) {
   draft = null;
+  draftKeys = {};
   $('matchup-save').disabled = true;
   $('matchup-state').textContent = text || 'Saved';
   $('matchup-state').classList.remove('dirty');
@@ -3039,7 +3042,7 @@ function renderMatchupEditor(force) {
       const write = (slot, value) => {
         const next = currentDuos(day.id);
         next[i][slot] = value;
-        const d = beginEdit();
+        const d = beginEdit(day.id);
         d[day.id] = Object.assign({}, d[day.id], { duos: next });
         markDirty();
         renderMatchupEditor(true);
@@ -3071,7 +3074,7 @@ function renderMatchupEditor(force) {
         const write = (slot, value) => {
           const next = stored.slice(0, 2).map(x => ({ a: x.a, b: x.b }));
           next[mi][slot] = value;
-          const d = beginEdit();
+          const d = beginEdit(segment.id);
           // Firestore rejects undefined, so an unset side is stored as null.
           d[segment.id] = { matches: next.map(x => ({
             a: x.a === undefined ? null : x.a,
@@ -3109,11 +3112,16 @@ $('matchup-save').addEventListener('click', async () => {
   const btn = $('matchup-save');
   btn.disabled = true;
   $('matchup-state').textContent = 'Saving\u2026';
-  const payload = draft;
+  // Only the sections actually touched. Sending the whole document back would
+  // also re-send anything another admin changed while this draft was open.
+  const payload = {};
+  for (const key of Object.keys(draftKeys)) payload[key] = draft[key];
   try {
-    // One write for the whole schedule, so nothing can half-land.
     await setDoc(scheduleRef(), payload, { merge: true });
     markClean('Saved');
+    // Otherwise a select keeps focus and blocks the redraw when the snapshot
+    // lands, leaving stale warnings on screen.
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     renderMatchupEditor(true);
   } catch (err) {
     $('matchup-state').textContent = friendly(err);
