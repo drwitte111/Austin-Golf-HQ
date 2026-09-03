@@ -1234,6 +1234,16 @@ function nameKey(name) {
     .slice(0, 60);
 }
 
+// Names that get the admin screens, matched case-insensitively on the name
+// typed at login, so "david", "David" and "  DAVID " all land the same.
+//
+// Worth being clear about what this is and is not: with no auth and a page
+// anyone can view the source of, this gates the UI only. Anyone who types
+// "David" gets the admin screens, and Firestore will still accept their writes,
+// because the rules cannot tell players apart.
+const ADMIN_NAMES = ['david'];
+const isAdmin = name => !!name && ADMIN_NAMES.indexOf(String(name).trim().toLowerCase()) !== -1;
+
 /** This player's document id. Empty before anyone has signed in. */
 function playerId() {
   return nameKey(state.name);
