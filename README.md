@@ -25,13 +25,12 @@ Login (name only)
 
 ## World Tour Golf
 
-A working copy of the printed scorecard: two nines, the "holes inspired by"
-column headers, all three tee yardages, par and handicap rows, and a score row
-you type into. Yardage subtotals match the card exactly (BLACK 3235/3290, GOLD
-3026/3188, SILVER 2859/2967, par 36/36).
+Yardage subtotals match the printed card exactly (BLACK 3235/3290, GOLD
+3026/3188, SILVER 2859/2967, par 36/36). Kings North reconciles too (7017 /
+6481 / 6025 / 5662 off the black, gold, white and blue tees).
 
-Pick your tee and that row is ringed. Out / In / Total / To-par update as you
-type. Everyone's scores stream in live underneath.
+Every tee's yardage shows on each hole as a colour-coded chip. There is no tee
+to pick — par and handicap are what scoring needs.
 
 ### Adding a course
 
@@ -65,18 +64,15 @@ live total and to-par, and lets you:
 Signing in registers you on every course at once, so the whole field shows on
 both leaderboards before anyone has entered a score.
 
-## Signing in, and admin
+## Signing in
 
 There is no Firebase Auth. "Signing in" is typing your name, exactly like
 LaManna-Big-Year. What keeps two players apart is a random device id minted once
 into `localStorage`; that id is the document id of your score row, so your phone
-only ever writes your own scores.
+only ever writes your own scores. `Dave` and `Davidson` do not match
+`ADMIN_NAMES`; only the name itself does.
 
-`ADMIN_NAMES` in the script controls who sees admin screens — currently
-`['david']`, matched case-insensitively against the typed name. `Dave` and
-`Davidson` do not match.
-
-**What that gate is worth:** it hides UI, nothing more. The page source is
+**What the admin gate is worth:** it hides UI, nothing more. The page source is
 public, so anyone can read the list and type `David`, and Firestore will still
 accept their writes because the rules cannot tell players apart. Fine for a
 group of friends; if admin ever needs to be real, that means Firebase Anonymous
@@ -85,7 +81,7 @@ Auth plus a uid check in the rules.
 ### Data model
 
 ```
-courses/{courseId}/players/{deviceId}   name, tee, scores { "1": 4, ... "18": 5 }, updatedAt
+courses/{courseId}/players/{deviceId}   name, scores { "1": 4, ... "18": 5 }, updatedAt
 ```
 
 Course reference data ships in `index.html`, not Firestore — no reads to pay
@@ -106,9 +102,12 @@ Set up to be added to a phone home screen and used on the course:
 - **16px score inputs** — anything smaller makes iOS zoom the page on focus,
   which is maddening when you are tapping in 18 numbers.
 - **44px touch targets** on every button.
-- **Sticky row labels** — the scorecard scrolls sideways inside its own box
-  (the page itself never scrolls horizontally) and the BLACK/GOLD/PAR labels
-  stay pinned so you always know which row you are typing in.
+- **Vertical entry** — one row per hole running down the page, so a phone held
+  upright never scrolls sideways to reach hole 18. `-`/`+` steppers start at par
+  from empty, so most holes are one tap and the keyboard never opens. The
+  printed card is still there, collapsed and read-only, for reference.
+- **Scores marked as a card is marked** — a circle for under par, a square for
+  over, doubled for two or more either way.
 - **`overscroll-behavior`** so swiping past hole 9 doesn't trigger back-navigation
   or rubber-band the whole page.
 
