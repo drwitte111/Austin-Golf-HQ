@@ -1574,8 +1574,9 @@ async function absorbLegacy() {
   legacyAbsorbed = true;
   try {
     for (const courseId of Object.keys(COURSES)) {
-      const mineRow = roster(courseId).find(x => x.id === me) || {};
-      for (const row of roster(courseId)) {
+      const raw = state.rosters[courseId] || [];
+      const mineRow = raw.find(x => x.id === me) || {};
+      for (const row of raw) {
         if (!isLegacyId(row.id) || nameKey(row.name) !== me) continue;
         // Union of both cards, so no hole is dropped. Where the two disagree on
         // the same hole, the more recently written document settles it rather
@@ -1608,7 +1609,64 @@ async function absorbLegacy() {
   } catch (e) { /* best effort; the next open tries again */ }
 }
 
-function roster(courseId) { return state.rosters[courseId] || []; }
+/**
+ * Collapses rows that share a name into one.
+ *
+ * A phone still running the pre-name-key build keeps writing to its old device
+ * id, which shows up as a second row with the same name on it. Grouping on the
+ * name at read time means a stale device can never produce a duplicate on
+ * screen, whether or not anyone has reopened the app. absorbLegacy still tidies
+ * the documents themselves; this makes that cleanup invisible rather than
+ * something people have to wait for.
+ */
+function mergeByName(rows) {
+  const out = new Map();
+  for (const row of rows) {
+    const key = nameKey(row.name) || row.id;
+    const prev = out.get(key);
+    out.set(key, prev ? combineRows(prev, row, key) : Object.assign({}, row, { id: key }));
+  }
+  return [...out.values()];
+}
+
+function combineRows(a, b, key) {
+  const newer = writtenAt(b) > writtenAt(a) ? b : a;
+  const older = newer === a ? b : a;
+  const merged = Object.assign({}, older, newer, { id: key });
+
+  // Every hole from both, with the more recent row settling any disagreement.
+  if (a.scores || b.scores) {
+    merged.scores = Object.assign({}, older.scores || {}, newer.scores || {});
+  }
+  // Highest count per day, never the sum: two rows are two views of one tally.
+  if (a.days || b.days) {
+    const days = Object.assign({}, a.days || {});
+    for (const day of Object.keys(b.days || {})) {
+      days[day] = Math.max(days[day] || 0, b.days[day] || 0);
+    }
+    merged.days = days;
+  }
+  // Timelines concatenate, dropping anything logged twice.
+  if (a.log || b.log) {
+    const seen = {};
+    merged.log = (a.log || []).concat(b.log || [])
+      .filter(e => {
+        const id = e.t + '|' + e.day;
+        if (seen[id]) return false;
+        seen[id] = 1;
+        return true;
+      })
+      .sort((x, y) => (x.t || 0) - (y.t || 0))
+      .slice(-400);
+  }
+  merged.name = newer.name || older.name;
+  return merged;
+}
+
+function roster(courseId) { return mergeByName(state.rosters[courseId] || []); }
+
+/** Drink rows, with same-name duplicates collapsed the same way. */
+function drinkRows() { return mergeByName(state.drinks || []); }
 
 function nameOf(id) {
   for (const courseId of Object.keys(COURSES)) {
@@ -2038,7 +2096,7 @@ function subscribeDrinks() {
 }
 
 function myDrinkDoc() {
-  return (state.drinks || []).find(d => d.id === playerId()) || null;
+  return drinkRows().find(d => d.id === playerId()) || null;
 }
 
 function drinksOn(row, day) {
@@ -2099,7 +2157,7 @@ document.addEventListener('visibilitychange', () => {
 
 function renderDrinks() {
   const today = dayOf(new Date());
-  const rows = (state.drinks || []).slice();
+  const rows = drinkRows();
   const mine = myDrinkDoc();
 
   // Your own count: the pending local value wins until the write lands.
