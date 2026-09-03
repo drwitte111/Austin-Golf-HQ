@@ -587,32 +587,41 @@
   }
   tr.r-player:nth-of-type(even) th.rowlab,
   tr.r-player:nth-of-type(even) td { background: #F4F1E6; }
-  /* Match banding: each match gets a header naming the two duos and how it
-     stands, and every partner carries a stripe coloured on the same scale. */
-  tr.r-band td { background: var(--card-ink); color: var(--card-paper); text-align: left; padding: 7px 9px; }
-  .band-top { display: flex; align-items: baseline; gap: 10px; }
-  .band-top b {
+  /* Match banding: a header naming the match and how it stands, then the two
+     duos as single rows, one directly above the other. */
+  tr.r-band td {
+    background: var(--card-ink); color: var(--card-paper);
+    text-align: left; padding: 6px 9px;
+  }
+  tr.r-band b {
     font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--tee-gold);
   }
-  .band-top em { font-style: normal; font-size: 11px; color: #C9C4B6; }
-  .band-duos { display: flex; align-items: center; gap: 8px; margin-top: 3px; flex-wrap: wrap; }
-  .band-duo { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
-              font-family: Georgia, 'Times New Roman', serif; }
-  .band-v { font-size: 10px; color: #8C877B; }
+  tr.r-band em { font-style: normal; font-size: 11px; color: #C9C4B6; margin-left: 10px; }
+
+  /* Duo names need two lines; the read-only card can afford a wider gutter. */
+  #cards-list th.rowlab {
+    width: 122px; min-width: 122px;
+    white-space: normal; line-height: 1.2; padding: 5px 6px 5px 8px;
+  }
+  th.rowlab.duolab {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 12px; text-transform: none; letter-spacing: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  }
   .pts {
-    font-style: normal; font-family: inherit; font-size: 11px; font-weight: 700;
+    font-style: normal; font-size: 11px; font-weight: 700; flex: none;
     padding: 1px 5px; border-radius: 3px; color: #10180F;
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: tabular-nums; font-family: 'Segoe UI', system-ui, sans-serif;
   }
 
-  /* One scale, five steps either side of level. */
-  .up3 .pts, .pts.up3 { background: #57C97F; }
-  .up2 .pts, .pts.up2 { background: #7FD79C; }
-  .up1 .pts, .pts.up1 { background: #A9E4BD; }
-  .level .pts, .pts.level { background: #B8B3A4; }
-  .dn1 .pts, .pts.dn1 { background: #F0B3A6; }
-  .dn2 .pts, .pts.dn2 { background: #E08874; }
-  .dn3 .pts, .pts.dn3 { background: #C4604C; }
+  /* One scale, three steps either side of level. */
+  .pts.up3 { background: #57C97F; }
+  .pts.up2 { background: #7FD79C; }
+  .pts.up1 { background: #A9E4BD; }
+  .pts.level { background: #B8B3A4; }
+  .pts.dn1 { background: #F0B3A6; }
+  .pts.dn2 { background: #E08874; }
+  .pts.dn3 { background: #C4604C; }
 
   tr.r-player th.rowlab { border-left: 4px solid transparent; }
   tr.r-player.up3 th.rowlab { border-left-color: #2E7D4F; }
@@ -622,7 +631,14 @@
   tr.r-player.dn1 th.rowlab { border-left-color: #F0B3A6; }
   tr.r-player.dn2 th.rowlab { border-left-color: #E08874; }
   tr.r-player.dn3 th.rowlab { border-left-color: #A8412F; }
+  /* The two sides of a match butt against each other, so mark the join. */
   tr.r-player.flip th.rowlab, tr.r-player.flip td { border-top: 2px solid #9A9488; }
+
+  /* Hole won, lost or halved against the opposing duo. The id keeps these
+     ahead of the alternating row shading. */
+  #cards-list td.won { background: #BCE5CB; }
+  #cards-list td.lost { background: #F0DCD8; }
+  #cards-list td.halved { background: #EDEAE0; }
   tr.r-player.me th.rowlab { color: var(--par-red); }
   tr.r-player.me td { box-shadow: inset 0 -2px 0 var(--par-red); }
   tr.r-player td { font-weight: 700; }
@@ -2084,44 +2100,90 @@ function renderCards() {
     holes.forEach(h => { parTotal += h.par; addCell(rPar, String(h.par)); });
     addCell(rPar, String(parTotal), 'sub');
 
-    // Order the rows by matchup rather than alphabetically, so the card answers
-    // "who is playing who" at a glance instead of making you cross-reference it.
+    // A scramble duo plays one ball, so the pair is one row - printing both
+    // partners repeats the same numbers twice and buries the matchup. Each match
+    // is its duo, then the duo it is playing directly underneath.
     const segment = SEGMENTS.find(x => x.courseId === courseId && x.nine === nineIndex);
     const matches = segment ? matchesOf(segment) : [];
-    const byId = id => players.find(x => x.id === id);
     const span = holes.length + 2;
+    const inDuo = duo => duo && (duo.p1 === playerId() || duo.p2 === playerId());
 
     const groups = [];
     const claimed = {};
     matches.forEach((m, mi) => {
       const res = playMatch(segment, m.a, m.b);
-      const lead = res.upA - res.upB;           // holes up, from duo A's side
-      const rows = [];
-      [['a', m.a, lead], ['b', m.b, -lead]].forEach(pair => {
-        for (const id of [pair[1].p1, pair[1].p2]) {
-          const player = byId(id);
-          if (!player) continue;
-          rows.push({ player: player, side: pair[0], lead: pair[2] });
-          claimed[id] = 1;
-        }
+      const lead = res.upA - res.upB;                  // holes up, from A's side
+      [m.a, m.b].forEach(duo => { claimed[duo.p1] = 1; claimed[duo.p2] = 1; });
+      groups.push({
+        title: 'Match ' + (mi + 1),
+        status: matchStatus(res, duoName(m.a), duoName(m.b)),
+        duos: [
+          { duo: m.a, side: 'a', lead: lead },
+          { duo: m.b, side: 'b', lead: -lead }
+        ]
       });
-      if (rows.length) {
-        groups.push({
-          title: 'Match ' + (mi + 1),
-          a: duoName(m.a), b: duoName(m.b),
-          leadA: lead, leadB: -lead,
-          status: matchStatus(res, duoName(m.a), duoName(m.b)),
-          rows: rows
-        });
-      }
     });
     const spare = players.filter(x => !claimed[x.id]);
     if (spare.length) {
       groups.push({
         title: matches.length ? 'Not in a match' : null,
-        rows: spare.map(x => ({ player: x, side: null, lead: null }))
+        solo: spare
       });
     }
+
+    // One row, whether it is a duo sharing a ball or a lone player.
+    const scoreRow = function (opts) {
+      const row = table.insertRow();
+      row.className = 'r-player' + (opts.mine ? ' me' : '')
+        + (opts.side ? ' side-' + opts.side : '')
+        + (opts.lead === null || opts.lead === undefined ? '' : ' ' + leadClass(opts.lead))
+        + (opts.flip ? ' flip' : '');
+
+      const label = addLabel(row, opts.label);
+      if (opts.mine) label.classList.add('mine');
+      if (opts.duoLabel) {
+        label.classList.add('duolab');
+        label.appendChild(opts.duoLabel);
+      }
+
+      let sum = 0, complete = true;
+      for (const h of holes) {
+        const visible = opts.mine || mine[h.holeNo] !== undefined;
+        const value = opts.get(h.holeNo);
+        const td = row.insertCell();
+
+        if (!visible) {
+          td.className = 'locked';
+          td.textContent = '\u00b7';
+          td.title = 'Hidden until you enter your own score for this hole';
+          complete = false;
+        } else if (value === undefined) {
+          td.textContent = '';
+          complete = false;
+        } else {
+          const diff = value - h.par;
+          td.className = diff <= -2 ? 'eagle' : diff === -1 ? 'birdie'
+            : diff === 1 ? 'bogey' : diff >= 2 ? 'double' : '';
+          td.textContent = value;
+          sum += value;
+
+          // Who took the hole. The border shape already says how the score sat
+          // against par; the fill says how it sat against the opponent, so the
+          // match reads as a run of green down the row.
+          if (opts.vs) {
+            const other = opts.vs(h.holeNo);
+            if (other !== undefined) {
+              if (value < other) td.classList.add('won');
+              else if (value > other) td.classList.add('lost');
+              else td.classList.add('halved');
+            }
+          }
+        }
+      }
+      // A subtotal only shows once every hole in it is played and visible;
+      // otherwise the number itself leaks what is still hidden.
+      addCell(row, complete ? String(sum) : '\u2014', 'sub');
+    };
 
     for (const group of groups) {
       if (group.title) {
@@ -2129,85 +2191,42 @@ function renderCards() {
         band.className = 'r-band';
         const cell = band.insertCell();
         cell.colSpan = span;
-
-        const top = document.createElement('div');
-        top.className = 'band-top';
         const label = document.createElement('b');
         label.textContent = group.title;
-        top.appendChild(label);
+        cell.appendChild(label);
         if (group.status) {
           const st = document.createElement('em');
           st.textContent = group.status;
-          top.appendChild(st);
-        }
-        cell.appendChild(top);
-
-        if (group.a) {
-          const line = document.createElement('div');
-          line.className = 'band-duos';
-          [[group.a, group.leadA], [group.b, group.leadB]].forEach((duo, i) => {
-            if (i) {
-              const v = document.createElement('span');
-              v.className = 'band-v';
-              v.textContent = 'v';
-              line.appendChild(v);
-            }
-            const wrap = document.createElement('span');
-            wrap.className = 'band-duo';
-            const nm = document.createElement('span');
-            nm.textContent = duo[0];
-            const pts = document.createElement('i');
-            pts.className = 'pts ' + leadClass(duo[1]);
-            pts.textContent = signed(duo[1]);
-            wrap.appendChild(nm);
-            wrap.appendChild(pts);
-            line.appendChild(wrap);
-          });
-          cell.appendChild(line);
+          cell.appendChild(st);
         }
       }
 
-      group.rows.forEach((entry, i) => {
-        const player = entry.player;
-        const isMe = player.id === playerId();
-        const scores = player.scores || {};
-
-        const row = table.insertRow();
-        row.className = 'r-player'
-          + (isMe ? ' me' : '')
-          + (entry.side ? ' side-' + entry.side : '')
-          + (entry.lead === null || entry.lead === undefined ? '' : ' ' + leadClass(entry.lead))
-          // A hairline where the second duo starts, so the two sides read apart.
-          + (entry.side === 'b' && group.rows[i - 1] && group.rows[i - 1].side === 'a' ? ' flip' : '');
-        const label = addLabel(row, player.name || 'Player');
-        if (isMe) label.classList.add('mine');
-
-        let sum = 0, complete = true;
-        for (const h of holes) {
-          const visible = isMe || mine[h.holeNo] !== undefined;
-          const value = scores[h.holeNo];
-          const td = row.insertCell();
-
-          if (!visible) {
-            td.className = 'locked';
-            td.textContent = '\u00b7';
-            td.title = 'Hidden until you enter your own score for this hole';
-            complete = false;
-          } else if (value === undefined) {
-            td.textContent = '';
-            complete = false;
-          } else {
-            const diff = value - h.par;
-            td.className = diff <= -2 ? 'eagle' : diff === -1 ? 'birdie'
-              : diff === 1 ? 'bogey' : diff >= 2 ? 'double' : '';
-            td.textContent = value;
-            sum += value;
-          }
+      if (group.duos) {
+        group.duos.forEach((entry, i) => {
+          const points = document.createElement('i');
+          points.className = 'pts ' + leadClass(entry.lead);
+          points.textContent = signed(entry.lead);
+          scoreRow({
+            label: duoName(entry.duo),
+            duoLabel: points,
+            mine: inDuo(entry.duo),
+            side: entry.side,
+            lead: entry.lead,
+            flip: i > 0,
+            get: holeNo => duoScore(entry.duo, courseId, holeNo),
+            vs: holeNo => duoScore(group.duos[i ? 0 : 1].duo, courseId, holeNo)
+          });
+        });
+      } else {
+        for (const player of group.solo) {
+          const scores = player.scores || {};
+          scoreRow({
+            label: player.name || 'Player',
+            mine: player.id === playerId(),
+            get: holeNo => scores[holeNo]
+          });
         }
-        // A subtotal only shows once every hole in it is played and visible;
-        // otherwise the number itself leaks what is still hidden.
-        addCell(row, complete ? String(sum) : '\u2014', 'sub');
-      });
+      }
     }
 
     scroll.appendChild(table);
