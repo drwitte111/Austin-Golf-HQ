@@ -19,8 +19,8 @@ Login (name only)
         ├── Overview          - placeholder
         ├── Stats             - placeholder
         ├── World Tour Golf   - built
-        ├── New Kings North   - placeholder
-        └── Admin             - placeholder, only shown to an admin
+        ├── New Kings North   - built
+        └── Admin             - built, only shown to an admin
 ```
 
 ## World Tour Golf
@@ -33,12 +33,37 @@ you type into. Yardage subtotals match the card exactly (BLACK 3235/3290, GOLD
 Pick your tee and that row is ringed. Out / In / Total / To-par update as you
 type. Everyone's scores stream in live underneath.
 
-### Adding New Kings North
+### Adding a course
 
-The scorecard is data-driven — `COURSES` near the top of the script block is the
-only thing that describes a course. Adding New Kings North means adding one more
-entry there (name, tee names, and the two nines with `inspiredBy`, yardage per
-tee, `par`, `hcp`) and pointing the menu button at its id. **No renderer changes.**
+`COURSES` near the top of the script block is the only thing that describes a
+course, and both renderers read everything from it:
+
+- `tees` — any number of them. World Tour has three, Kings North four.
+- `numbering` — `'per-nine'` numbers each nine 1-9 as World Tour's card does;
+  omit it for cards that run 1-18 straight through, like Kings North.
+- `inspiredBy` — optional. World Tour's holes copy famous ones, which is its
+  whole draw; where a course has no such column, par takes the headline instead.
+- `art` — which tile image to use.
+
+Kings North was added as data only. **No renderer changes were needed.**
+
+Its red tees are left out of `tees` on purpose; the red yardages are still in
+the hole data, so putting that tee back is a one-word change.
+
+## Admin
+
+`ADMIN_NAMES` controls who sees the Admin tile — currently `['david']`, matched
+case-insensitively. The Admin screen lists every player on a course with their
+live total and to-par, and lets you:
+
+- **open anyone's card and edit it** — the normal entry screen, with a red
+  banner naming whose card is open. Editing someone else does not add a row for
+  you.
+- **delete a player** — removes them and their scores from *every* course, and
+  asks you to type their name first, so a stray tap cannot do it.
+
+Signing in registers you on every course at once, so the whole field shows on
+both leaderboards before anyone has entered a score.
 
 ## Signing in, and admin
 
