@@ -743,10 +743,10 @@
 
     <div class="card">
       <h2>Match play points</h2>
-      <p class="muted">A win is +1, a loss &minus;1, a push 0.</p>
-      <div class="srow shead"><span>Player</span><span>W-L-P</span><span>Pts</span></div>
+      <p class="muted">Every hole: won +1, lost &minus;1, halved 0. Counts as you play.</p>
+      <div class="srow shead"><span>Player</span><span>Holes W-L-H</span><span>Pts</span></div>
       <div id="mpoints"></div>
-      <p class="muted hidden" id="mpoints-empty">No nine has finished yet.</p>
+      <p class="muted hidden" id="mpoints-empty">No hole has both duos&rsquo; scores in yet.</p>
     </div>
 
     <div class="card">
@@ -1203,6 +1203,7 @@ function playMatch(segment, duoA, duoB) {
 
   const complete = played.length === holes.length;
   const result = {
+    played: played,
     thru: played.length, total: holes.length, complete: complete,
     upA: upA, upB: upB, strokesA: strokesA, strokesB: strokesB,
     winner: null, decidedBy: null
@@ -1269,6 +1270,39 @@ function tripRecords() {
       const lost = res.winner === 'a' ? m.b : m.a;
       bump(won.p1, 'w'); bump(won.p2, 'w');
       bump(lost.p1, 'l'); bump(lost.p2, 'l');
+    }
+  }
+  return rec;
+}
+
+/**
+ * Match play points, tallied hole by hole rather than by match: every hole a
+ * duo wins is +1 to both of its players and -1 to both opponents, a halved hole
+ * 0. Counted live off the holes already in, so it moves during a round instead
+ * of only when a nine closes out.
+ *
+ * Reuses the holes the match engine itself compared, so the points and the
+ * match status can never disagree about who won a hole.
+ */
+function holeRecords() {
+  const rec = {};
+  const bump = (id, key) => {
+    if (!id) return;
+    if (!rec[id]) rec[id] = { w: 0, l: 0, p: 0 };
+    rec[id][key]++;
+  };
+  for (const segment of SEGMENTS) {
+    for (const m of matchesOf(segment)) {
+      for (const h of playMatch(segment, m.a, m.b).played) {
+        if (h.sa === h.sb) {
+          [m.a.p1, m.a.p2, m.b.p1, m.b.p2].forEach(id => bump(id, 'p'));
+          continue;
+        }
+        const won  = h.sa < h.sb ? m.a : m.b;
+        const lost = h.sa < h.sb ? m.b : m.a;
+        bump(won.p1, 'w'); bump(won.p2, 'w');
+        bump(lost.p1, 'l'); bump(lost.p2, 'l');
+      }
     }
   }
   return rec;
@@ -1821,8 +1855,8 @@ function nameCell(player, suffix) {
   return frag;
 }
 
-function recordRows() {
-  const rec = tripRecords();
+function recordRows(source) {
+  const rec = source();
   return allPlayers().map(p => ({ p: p, r: rec[p.id] || { w: 0, l: 0, p: 0 } }));
 }
 
@@ -1833,7 +1867,7 @@ const anyPlayed = rows => rows.some(x => x.r.w + x.r.l + x.r.p > 0);
 function renderStandings() {
   const host = $('standings');
   host.innerHTML = '';
-  const rows = recordRows();
+  const rows = recordRows(tripRecords);
   rows.sort((x, y) => y.r.w - x.r.w || x.r.l - y.r.l ||
     String(x.p.name || '').localeCompare(String(y.p.name || '')));
   $('standings-empty').classList.toggle('hidden', anyPlayed(rows));
@@ -1844,11 +1878,11 @@ function renderStandings() {
   }
 }
 
-// Match play points: the same record scored +1 / -1 / 0, ordered on points.
+// Match play points: every hole in every match, scored +1 / -1 / 0.
 function renderPoints() {
   const host = $('mpoints');
   host.innerHTML = '';
-  const rows = recordRows();
+  const rows = recordRows(holeRecords);
   rows.sort((x, y) => pointsOf(y.r) - pointsOf(x.r) || y.r.w - x.r.w ||
     String(x.p.name || '').localeCompare(String(y.p.name || '')));
   $('mpoints-empty').classList.toggle('hidden', anyPlayed(rows));
