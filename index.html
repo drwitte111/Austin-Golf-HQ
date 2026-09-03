@@ -213,6 +213,11 @@
       linear-gradient(100deg, rgba(8,20,14,.90), rgba(8,20,14,.55) 58%, rgba(8,20,14,.22)),
       url('course-world-tour.webp');
   }
+  .menu-btn[data-art="beverage"] {
+    background-image:
+      linear-gradient(100deg, rgba(8,20,14,.90), rgba(8,20,14,.55) 58%, rgba(8,20,14,.20)),
+      url('beverage.webp');
+  }
   .menu-btn[data-art="kings-north"] {
     background-image:
       linear-gradient(100deg, rgba(8,20,14,.90), rgba(8,20,14,.58) 58%, rgba(8,20,14,.28)),
@@ -654,6 +659,9 @@
   .dbar i { display: block; height: 100%; background: var(--green); border-radius: 5px; }
   .dnum { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px; }
 
+  .clock-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .clock-head p { flex: 1; min-width: 0; }
+  .clock-head select.pick { flex: none; width: 140px; height: 38px; }
   .clock { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
   .chour { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
   .chour i { display: block; background: var(--green); border-radius: 2px 2px 0 0; min-height: 2px; }
@@ -739,7 +747,7 @@
         <button class="menu-btn" data-go="overview">
           <strong>Live Scorecard</strong><span>Everyone's cards, hole by hole</span>
         </button>
-        <button class="menu-btn" data-go="drinks">
+        <button class="menu-btn" data-go="drinks" data-art="beverage">
           <strong>Beverage Counter</strong><span>Tally the day&rsquo;s drinks</span>
         </button>
         <button class="menu-btn" data-go="stats">
@@ -785,7 +793,7 @@
         <strong id="drink-count">0</strong>
         <button class="cbtn" id="drink-plus" aria-label="One more drink">+</button>
       </div>
-      <p class="muted" id="drink-hint">Resets on its own at midnight Eastern.</p>
+      <p class="muted" id="drink-hint">Rolls over on its own at 5am Eastern.</p>
     </div>
 
     <div class="card">
@@ -796,7 +804,10 @@
 
     <div class="card">
       <h2>When they land</h2>
-      <p class="muted">The whole group&rsquo;s drinks today, by the hour.</p>
+      <div class="clock-head">
+        <p class="muted">Today, by the hour.</p>
+        <select class="pick" id="clock-who"><option value="">Everyone</option></select>
+      </div>
       <div id="drinks-clock"></div>
     </div>
 
@@ -1484,6 +1495,7 @@ const state = {
   drinks: [],
   drinkLocal: null,
   drinkLog: null,
+  clockWho: '',
   courseId: null,
   course: null,
   holes: [],
@@ -1916,12 +1928,19 @@ $('cards-back').addEventListener('click', openOverview);
 // The day is Eastern, via the IANA zone rather than a fixed -5, so it follows
 // daylight saving instead of drifting by an hour for half the year.
 const DRINK_TZ = 'America/New_York';
+// The day turns over at 5am Eastern, not midnight, so a nightcap at 1am still
+// belongs to the day it was drunk on.
+const DAY_ROLLOVER_HOUR = 5;
 const drinkRef = id => doc(db, 'drinks', id || playerId());
 
 const dayFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: DRINK_TZ, year: 'numeric', month: '2-digit', day: '2-digit'
 });
-const dayOf = date => dayFormatter.format(date);           // YYYY-MM-DD
+// Shifting the instant back by the rollover hour and then formatting in
+// Eastern gives the right answer either side of a daylight saving change,
+// because the zone conversion happens after the shift.
+const dayOf = date =>
+  dayFormatter.format(new Date(date.getTime() - DAY_ROLLOVER_HOUR * 3600000));
 
 const timeFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: DRINK_TZ, hour: 'numeric', minute: '2-digit'
@@ -2065,9 +2084,30 @@ function renderDrinksClock(rows, today) {
   const host = $('drinks-clock');
   host.innerHTML = '';
 
+  // Keep the chosen person across re-renders; the list itself is rebuilt as
+  // people sign in.
+  const picker = $('clock-who');
+  const chosen = state.clockWho || '';
+  if (!picker.contains(document.activeElement)) {
+    picker.innerHTML = '';
+    const all = document.createElement('option');
+    all.value = '';
+    all.textContent = 'Everyone';
+    picker.appendChild(all);
+    for (const row of rows.slice().sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || '')))) {
+      const opt = document.createElement('option');
+      opt.value = row.id;
+      opt.textContent = row.name || 'Player';
+      picker.appendChild(opt);
+    }
+    picker.value = chosen;
+  }
+
   const byHour = new Array(24).fill(0);
   let total = 0;
   for (const row of rows) {
+    if (chosen && row.id !== chosen) continue;
     const log = row.id === playerId() && state.drinkLog ? state.drinkLog : (row.log || []);
     for (const entry of log) {
       if (entry.day !== today || !entry.t) continue;
@@ -2079,7 +2119,9 @@ function renderDrinksClock(rows, today) {
   if (!total) {
     const none = document.createElement('p');
     none.className = 'muted';
-    none.textContent = 'Nothing logged today.';
+    none.textContent = state.clockWho
+      ? nameOf(state.clockWho) + ' has nothing logged today.'
+      : 'Nothing logged today.';
     host.appendChild(none);
     return;
   }
@@ -2190,6 +2232,11 @@ function renderDrinksHistory(rows, today) {
   }
   host.appendChild(table);
 }
+
+$('clock-who').addEventListener('change', e => {
+  state.clockWho = e.target.value;
+  renderDrinks();
+});
 
 $('drink-plus').addEventListener('click', () => bumpDrink(1));
 $('drink-minus').addEventListener('click', () => bumpDrink(-1));
