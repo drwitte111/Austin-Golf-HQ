@@ -368,7 +368,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
 import {
-  getFirestore, collection, doc, setDoc, updateDoc, deleteField,
+  getFirestore, collection, doc, setDoc, deleteField,
   onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
@@ -647,8 +647,13 @@ function buildTeePicker(course) {
       writeStore(TEE_KEY, tee);
       buildTeePicker(course);
       highlightTee();
-      updateDoc(playerRef(state.courseId), { tee: tee, updatedAt: serverTimestamp() })
-        .catch(err => showError($('course-error'), friendly(err)));
+      // setDoc+merge for the same reason as commit(): it works whether or not
+      // the row exists yet, so changing tees before your first score is safe.
+      setDoc(playerRef(state.courseId), {
+        name: state.name.slice(0, 40),
+        tee: tee,
+        updatedAt: serverTimestamp()
+      }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
     });
     box.appendChild(btn);
   }
@@ -789,13 +794,25 @@ function commit(hole, raw) {
   }
   refreshTotals();
 
+  // ONE setDoc with merge, never a create followed by an update. merge writes
+  // the row if it is missing and patches it if it is not, as a single atomic
+  // write, and a nested map merges key by key so this touches only this hole.
+  //
+  // The two-step version this replaces had a real bug: tapping several holes in
+  // the same tick could send an update before its own create had committed, the
+  // rules saw an update against a document that did not exist yet, and the hole
+  // was silently dropped.
+  //
   // Not awaited: Firestore queues writes offline and syncs them when signal
   // returns, which is exactly what you want mid-round.
-  const patch = { updatedAt: serverTimestamp(), name: state.name.slice(0, 40), tee: state.tee };
-  patch['scores.' + hole] = raw.trim() === '' ? deleteField() : state.scores[hole];
-  setDoc(playerRef(state.courseId), { name: state.name.slice(0, 40) }, { merge: true })
-    .then(() => updateDoc(playerRef(state.courseId), patch))
-    .catch(err => showError($('course-error'), friendly(err)));
+  const scorePatch = {};
+  scorePatch[hole] = raw.trim() === '' ? deleteField() : state.scores[hole];
+  setDoc(playerRef(state.courseId), {
+    name: state.name.slice(0, 40),
+    tee: state.tee,
+    scores: scorePatch,
+    updatedAt: serverTimestamp()
+  }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
 }
 
 // Pushes server values back into the inputs, but never the one being typed in.
