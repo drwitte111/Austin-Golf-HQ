@@ -290,72 +290,114 @@
      the vertical list above it. */
   tr.r-score th.rowlab, tr.r-score td { background: #FFF8D6; font-weight: 700; }
 
-  /* VERTICAL HOLE LIST - the primary way scores get entered */
-  .nine-head {
-    display: flex; justify-content: space-between; align-items: baseline;
-    margin: 18px 0 4px; padding-bottom: 7px;
-    border-bottom: 1px solid rgba(255,255,255,.18);
+  /* VERTICAL HOLE LIST - the entry surface, dressed as the printed card.
+     Same paper, same ink, same black nine bars and red par, just running down
+     the page instead of across it. */
+  #holelist {
+    background: var(--card-paper);
+    color: var(--card-ink);
+    border: 2px solid var(--card-ink);
+    border-radius: 3px;
+    margin-bottom: 14px;
+    overflow: hidden;
   }
-  .nine-head:first-child { margin-top: 0; }
-  .nine-head h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--sand); }
-  .nine-head span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .nine-head {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--card-ink);
+    padding: 9px 12px;
+  }
+  .nine-head h3 {
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .20em;
+    color: var(--card-paper);
+  }
+  .nine-head span {
+    font-size: 12px; font-weight: 700; letter-spacing: .10em;
+    color: var(--tee-gold); font-variant-numeric: tabular-nums;
+  }
 
   .hrow {
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) auto;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
-    padding: 7px 0;
-    border-bottom: 1px solid rgba(255,255,255,.06);
+    padding: 7px 12px;
+    border-bottom: 1px solid #DAD5C6;
   }
+  .hrow.alt { background: #F4F1E6; }
+
   .hnum {
-    width: 32px; height: 32px; border-radius: 50%;
+    width: 30px; height: 30px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.16);
-    font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums;
+    background: var(--card-ink); color: var(--card-paper);
+    font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums;
   }
-  .hname { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hstats { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  /* The famous hole each one copies is the whole point of this course, so it
+     gets the serif and the room. */
+  .hname {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 15px; line-height: 1.25;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .hstats { font-size: 11px; color: #6E6A5E; margin-top: 1px; letter-spacing: .02em; }
+  .hstats b { color: var(--par-red); font-weight: 700; }
   .hentry { display: flex; align-items: center; gap: 6px; }
 
   /* Big enough to hit with a thumb, one-handed, in sunlight. */
   .step {
-    width: 42px; height: 44px; flex: none;
-    border: 1px solid rgba(255,255,255,.2);
-    background: rgba(0,0,0,.25); color: var(--cream);
+    width: 38px; height: 42px; flex: none;
+    border: 1px solid #C7C1B0; border-radius: 3px;
+    background: #EDE9DB; color: var(--card-ink);
     font-size: 20px; line-height: 1; font-weight: 600;
+    min-height: 0;
   }
-  .step:active { background: var(--green); border-color: var(--green); }
+  .step:active { background: var(--par-red); border-color: var(--par-red); color: #fff; }
 
   input.score {
-    width: 58px; height: 44px; flex: none;
-    border: 1px solid rgba(255,255,255,.22); border-radius: var(--radius);
-    background: rgba(0,0,0,.3); color: var(--cream);
-    text-align: center; font: inherit; font-size: 17px; font-weight: 700;
+    width: 52px; height: 42px; flex: none;
+    border: 2px solid #C7C1B0; border-radius: 3px;
+    background: #fff; color: var(--card-ink);
+    text-align: center; font: inherit; font-size: 18px; font-weight: 700;
     font-variant-numeric: tabular-nums;
     -moz-appearance: textfield;
+    transition: border-radius .12s ease;
   }
   input.score::-webkit-outer-spin-button,
   input.score::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-  input.score:focus-visible { outline: 2px solid var(--light); outline-offset: 1px; }
-  /* Score relative to par, the way a golfer reads a card at a glance. */
-  input.score.eagle  { border-color: #E3B23C; box-shadow: inset 0 0 0 1px #E3B23C; }
-  input.score.birdie { border-color: var(--light); box-shadow: inset 0 0 0 1px var(--light); }
-  input.score.bogey  { border-color: #C98A3C; }
-  input.score.double { border-color: var(--rust); box-shadow: inset 0 0 0 1px var(--rust); }
+  input.score:focus-visible { outline: 2px solid var(--par-red); outline-offset: 2px; }
 
-  /* STICKY TOTALS */
+  /* Marked the way a scorecard is actually marked: a circle for under par, a
+     square for over, doubled for two or more either way. Reads at a glance
+     without having to do the arithmetic. */
+  input.score.birdie,
+  input.score.eagle  { border-color: var(--par-red); color: var(--par-red); border-radius: 50%; }
+  input.score.eagle  { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--par-red); }
+  input.score.bogey,
+  input.score.double { border-color: var(--card-ink); border-radius: 0; }
+  input.score.double { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--card-ink); }
+
+  /* STICKY TOTALS - the card's black band, pinned to the bottom of the screen */
   .totals-dock {
     position: sticky; bottom: 0; z-index: 5;
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
-    margin: 14px -14px 0;
-    background: rgba(255,255,255,.10);
-    border-top: 1px solid rgba(255,255,255,.16);
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    margin: 0 -14px;
+    background: var(--card-ink);
+    border-top: 2px solid var(--tee-gold);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .totals-dock > div { background: #10281A; padding: 9px 4px 10px; text-align: center; }
-  .totals-dock span { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
-  .totals-dock strong { display: block; font-size: 20px; margin-top: 2px; font-variant-numeric: tabular-nums; color: var(--sand); }
+  .totals-dock > div { padding: 8px 4px 9px; text-align: center; border-left: 1px solid #37372F; }
+  .totals-dock > div:first-child { border-left: 0; }
+  .totals-dock span {
+    display: block; font-size: 9px; text-transform: uppercase;
+    letter-spacing: .14em; color: #9A9689;
+  }
+  .totals-dock strong {
+    display: block; font-size: 21px; margin-top: 1px;
+    font-variant-numeric: tabular-nums; color: var(--card-paper);
+  }
+  .totals-dock strong#tot-par.under { color: #6ED08C; }
+  .totals-dock strong#tot-par.over  { color: #F0907E; }
 
   /* PRINTED CARD - collapsed reference, not the entry surface */
   details.printed summary {
@@ -479,9 +521,7 @@
 
     <!-- Entry runs down the page, one hole per row, so a phone held upright
          never has to scroll sideways to reach hole 9. -->
-    <div class="card">
-      <div id="holelist"></div>
-    </div>
+    <div id="holelist"></div>
 
     <!-- The printed card is still here, just not in the way. Read-only. -->
     <details class="card printed">
@@ -803,7 +843,7 @@ function buildHoleList(course) {
       const holeNo = holeOffset + i + 1;
 
       const row = document.createElement('div');
-      row.className = 'hrow';
+      row.className = i % 2 ? 'hrow alt' : 'hrow';
 
       const num = document.createElement('div');
       num.className = 'hnum';
@@ -815,7 +855,10 @@ function buildHoleList(course) {
       name.textContent = h.inspiredBy;
       const stats = document.createElement('div');
       stats.className = 'hstats';
-      stats.textContent = 'Par ' + h.par + ' · Hcp ' + h.hcp;
+      const parEl = document.createElement('b');
+      parEl.textContent = 'Par ' + h.par;
+      stats.appendChild(parEl);
+      stats.appendChild(document.createTextNode(' · Hcp ' + h.hcp));
       meta.appendChild(name);
       meta.appendChild(stats);
 
@@ -1093,7 +1136,11 @@ function refreshTotals() {
   $('tot-out').textContent = out;
   $('tot-in').textContent = inn;
   $('tot-all').textContent = out + inn;
-  $('tot-par').textContent = formatToPar(toPar(state.scores, state.holes));
+  const diff = toPar(state.scores, state.holes);
+  const parEl = $('tot-par');
+  parEl.textContent = formatToPar(diff);
+  parEl.classList.toggle('under', diff < 0);
+  parEl.classList.toggle('over', diff > 0);
 
   // Per-nine subtotals, in both the hole list headers and the printed card.
   const label = (el, i) => {
