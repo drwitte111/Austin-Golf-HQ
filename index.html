@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>Austin Golf HQ</title>
+
+<!-- Home-screen install, same setup as LaManna-Big-Year. "standalone" drops the
+     browser chrome so it opens like an app; black-translucent lets the page run
+     under the status bar, which is why every edge below pads with
+     env(safe-area-inset-*). -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14301F">
+<link rel="icon" href="favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Golf HQ">
+<!-- Stops iOS turning bare numbers on the scorecard into tappable phone links. -->
+<meta name="format-detection" content="telephone=no">
+
+<!-- AUTO-UPDATE CHECK - runs before anything else. Asks GitHub Pages for
+     headers only (HEAD = no body) and keys off the ETag, which changes by
+     itself on every deploy, so there is no version number to remember to bump.
+     Without this, a phone that added this page to its home screen can sit on a
+     stale cached copy for days - bad when the group is mid-round. -->
+<script>
+(async function checkForUpdate() {
+  const KEY = 'golfhq_build';
+  try {
+    const res = await fetch(location.href, { method: 'HEAD', cache: 'no-store' });
+    const tag = res.headers.get('etag') || res.headers.get('last-modified');
+    if (!tag) return;
+    const seen = localStorage.getItem(KEY);
+    localStorage.setItem(KEY, tag);
+    // Only reload when we have seen a DIFFERENT build before. A first visit has
+    // nothing to compare against and must not bounce.
+    if (seen && seen !== tag) location.reload();
+  } catch (e) { /* offline on the course - run whatever version we have */ }
+})();
+</script>
+
+<style>
+  :root {
+    --fairway: #14301F;
+    --panel:   #1B3D28;
+    --green:   #2E7D4F;
+    --light:   #4CAF6D;
+    --cream:   #F3EFE2;
+    --sand:    #D9C89A;
+    --muted:   #93A797;
+    --rust:    #A8412F;
+
+    /* Pulled from the printed card so the scorecard reads as the real thing. */
+    --card-paper: #FFFFFF;
+    --card-ink:   #1A1A1A;
+    --tee-black:  #1A1A1A;
+    --tee-gold:   #D2A93F;
+    --tee-silver: #D2D2D2;
+    --par-red:    #A81D38;
+
+    --radius: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html { height: 100%; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--fairway);
+    color: var(--cream);
+    /* dvh tracks the real visible height as Safari's toolbars slide away; the
+       vh line above it is the fallback for browsers without dvh. */
+    min-height: 100vh; min-height: 100dvh;
+    overflow-x: hidden;
+    /* Stops the whole page rubber-banding behind the app when a scroller
+       inside it reaches its end. */
+    overscroll-behavior-y: none;
+  }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* viewport-fit=cover puts the page under the notch and home indicator, so
+     every outer edge pads to the safe area and falls back to a plain gutter on
+     hardware that has none. */
+  .wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding:
+      max(22px, env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      max(64px, env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+  }
+
+  /* Grid and flex children default to min-width:auto, so an intrinsically wide
+     child (the scorecard) would push its row past the edge instead of
+     shrinking and scrolling. */
+  .card > *, .menu-grid > *, .totals-bar > * { min-width: 0; }
+
+  header.masthead { text-align: center; margin-bottom: 20px; }
+  header.masthead h1 { font-size: 25px; letter-spacing: .05em; text-transform: uppercase; }
+  header.masthead p { color: var(--sand); font-size: 13px; margin-top: 4px; }
+
+  .card {
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .09em; color: var(--sand); margin-bottom: 12px; }
+
+  label.field { display: block; margin-bottom: 12px; }
+  label.field > span { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 5px; }
+  input.text {
+    width: 100%; padding: 12px; font: inherit; font-size: 16px;
+    border: 1px solid rgba(255,255,255,.18); border-radius: var(--radius);
+    background: rgba(0,0,0,.25); color: var(--cream);
+  }
+  input.text:focus-visible { outline: 2px solid var(--light); outline-offset: 1px; }
+
+  /* 44px is the smallest reliable touch target; everything tappable clears it. */
+  button { font: inherit; cursor: pointer; border-radius: var(--radius); min-height: 44px; touch-action: manipulation; }
+  .primary { width: 100%; padding: 14px; border: 0; background: var(--green); color: #fff; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; font-size: 15px; }
+  .primary:disabled { opacity: .55; cursor: default; }
+  .ghost { padding: 9px 14px; background: transparent; border: 1px solid rgba(255,255,255,.22); color: var(--sand); font-size: 13px; }
+
+  .badge {
+    display: inline-block; margin-left: 8px; padding: 2px 8px;
+    background: var(--par-red); color: #fff;
+    font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+    border-radius: 3px; vertical-align: middle;
+  }
+
+  /* MENU */
+  .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 460px) { .menu-grid { grid-template-columns: 1fr; } }
+  .menu-btn {
+    display: block; width: 100%; text-align: left;
+    padding: 20px 18px;
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,.14);
+    color: var(--cream);
+  }
+  .menu-btn:hover { border-color: var(--light); }
+  .menu-btn strong { display: block; font-size: 17px; letter-spacing: .02em; }
+  .menu-btn span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .menu-btn.soon strong { color: var(--muted); }
+
+  .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .topbar h2 { font-size: 18px; flex: 1; }
+  .topbar .who { font-size: 13px; color: var(--muted); }
+
+  /* SCORECARD - styled after the printed card */
+  .nine { margin-bottom: 18px; }
+  .nine-title {
+    background: var(--card-paper); color: var(--card-ink);
+    text-align: center; font-size: 13px; letter-spacing: .16em;
+    padding: 7px; text-transform: uppercase;
+    border: 2px solid var(--card-ink); border-bottom: 0;
+  }
+  .table-scroll {
+    overflow-x: auto;
+    border: 2px solid var(--card-ink);
+    background: var(--card-paper);
+    -webkit-overflow-scrolling: touch;   /* momentum scrolling on iOS */
+    overscroll-behavior-x: contain;      /* swiping past hole 9 must not trigger back-navigation */
+    scrollbar-width: thin;
+  }
+  table.card-table { border-collapse: collapse; width: 100%; min-width: 620px; color: var(--card-ink); }
+  table.card-table th, table.card-table td {
+    border: 1px solid #9A9A9A;
+    text-align: center;
+    font-size: 13px;
+    padding: 5px 3px;
+    min-width: 40px;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Row labels stay put while the holes scroll, so you always know which row
+     you are reading on a phone. */
+  table.card-table th.rowlab {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--card-paper);
+    text-align: left; padding-left: 8px;
+    min-width: 92px; width: 92px;
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  }
+  tr.r-black th.rowlab, tr.r-black td { background: var(--tee-black); color: #fff; }
+  tr.r-gold  th.rowlab, tr.r-gold  td { background: var(--tee-gold); }
+  tr.r-silver th.rowlab, tr.r-silver td { background: var(--tee-silver); }
+  tr.r-par   th.rowlab, tr.r-par   td { background: var(--par-red); color: #fff; font-weight: 700; }
+  tr.r-hole  td, tr.r-hole th.rowlab { font-weight: 700; }
+  tr.r-tot td { font-weight: 700; }
+
+  /* The tee you are playing gets a ring so it stands out from the other two. */
+  tr.tee-on td, tr.tee-on th.rowlab { box-shadow: inset 0 0 0 2px var(--par-red); }
+
+  td.inspired {
+    height: 132px;
+    vertical-align: bottom;
+    padding: 6px 2px;
+    background: var(--card-paper);
+  }
+  td.inspired div {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-size: 11px;
+    white-space: nowrap;
+    letter-spacing: .02em;
+  }
+  th.rowlab.inspired-lab { vertical-align: bottom; padding-bottom: 8px; }
+
+  td.sub { background: #EFEFEF; font-weight: 700; }
+
+  input.score {
+    width: 100%; min-width: 34px;
+    border: 0; background: #FFF8D6;
+    text-align: center; font: inherit; font-size: 16px; font-weight: 700;
+    padding: 7px 0; color: var(--card-ink);
+    -moz-appearance: textfield;
+  }
+  input.score::-webkit-outer-spin-button, input.score::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input.score:focus-visible { outline: 2px solid var(--par-red); outline-offset: -2px; }
+  tr.r-score th.rowlab { background: #FFF8D6; }
+  tr.r-score td { padding: 0; background: #FFF8D6; }
+
+  .tee-pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .tee-pick > span { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .tee-btn { padding: 8px 14px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.2); color: var(--cream); font-size: 13px; }
+  .tee-btn.active { background: var(--sand); border-color: var(--sand); color: #1A1A1A; font-weight: 700; }
+
+  .totals-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tot-box { flex: 1; min-width: 88px; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.12); border-radius: var(--radius); padding: 12px; text-align: center; }
+  .tot-box span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .tot-box strong { display: block; font-size: 24px; margin-top: 3px; font-variant-numeric: tabular-nums; color: var(--sand); }
+
+  ol.leaderboard { list-style: none; }
+  ol.leaderboard li {
+    display: grid; grid-template-columns: 22px 1fr auto 44px 44px;
+    align-items: center; gap: 8px; padding: 10px 8px; border-radius: 4px; font-size: 15px;
+  }
+  ol.leaderboard li:nth-child(odd) { background: rgba(0,0,0,.18); }
+  ol.leaderboard li.me { box-shadow: inset 0 0 0 1px var(--light); }
+  .rank { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .who2 { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who2 em { color: var(--muted); font-weight: 400; font-style: normal; }
+  .thru { color: var(--muted); font-size: 12px; }
+  .strokes, .topar { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .topar { color: var(--sand); }
+
+  /* Phone layout: tighten the card so more holes fit before you have to
+     scroll, but grow the score inputs — they are the one thing you tap
+     repeatedly, usually one-handed and often in sunlight. */
+  @media (max-width: 560px) {
+    .wrap {
+      padding-left: max(8px, env(safe-area-inset-left));
+      padding-right: max(8px, env(safe-area-inset-right));
+    }
+    .card { padding: 14px; }
+    header.masthead h1 { font-size: 21px; }
+    .topbar h2 { font-size: 16px; }
+    table.card-table { min-width: 560px; }
+    table.card-table th.rowlab { min-width: 74px; width: 74px; font-size: 10px; }
+    table.card-table th, table.card-table td { min-width: 36px; font-size: 12px; padding: 4px 2px; }
+    td.inspired { height: 116px; }
+    td.inspired div { font-size: 10px; }
+    input.score { padding: 13px 0; font-size: 16px; }
+    .tot-box strong { font-size: 21px; }
+    ol.leaderboard li { grid-template-columns: 20px 1fr auto 40px 40px; font-size: 14px; }
+  }
+
+  .muted { color: var(--muted); font-size: 14px; }
+  .error { color: #FFB3A7; background: rgba(168,65,47,.22); border: 1px solid var(--rust); padding: 10px 12px; border-radius: var(--radius); font-size: 14px; margin-bottom: 12px; }
+  .hidden { display: none !important; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="masthead">
+    <h1>Austin Golf HQ</h1>
+    <p>Live scoring, hole by hole</p>
+  </header>
+
+  <!-- LOGIN -->
+  <section class="page" id="page-login">
+    <div class="card">
+      <h2>Who is playing?</h2>
+      <label class="field">
+        <span>Your name</span>
+        <input id="login-name" class="text" maxlength="40" placeholder="Dave W." autocomplete="name">
+      </label>
+      <button class="primary" id="login-go">Enter</button>
+    </div>
+  </section>
+
+  <!-- MENU -->
+  <section class="page" id="page-menu">
+    <div class="card">
+      <div class="row" style="margin-bottom:16px">
+        <span class="muted">Signed in as <strong id="menu-name"></strong><span id="admin-badge" class="badge hidden">Admin</span></span>
+        <button class="ghost" id="menu-switch">Not you?</button>
+      </div>
+      <div class="menu-grid">
+        <button class="menu-btn soon" data-go="soon" data-title="Overview">
+          <strong>Overview</strong><span>Coming soon</span>
+        </button>
+        <button class="menu-btn soon" data-go="soon" data-title="Stats">
+          <strong>Stats</strong><span>Coming soon</span>
+        </button>
+        <button class="menu-btn" data-go="course" data-course="world-tour-golf">
+          <strong>World Tour Golf</strong><span>Enter your scorecard</span>
+        </button>
+        <button class="menu-btn soon" data-go="soon" data-title="New Kings North">
+          <strong>New Kings North</strong><span>Coming soon</span>
+        </button>
+        <!-- Only rendered for an admin session; see ADMIN_NAMES below. -->
+        <button class="menu-btn soon admin-only hidden" data-go="soon" data-title="Admin">
+          <strong>Admin</strong><span>Coming soon</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- PLACEHOLDER -->
+  <section class="page" id="page-soon">
+    <div class="topbar">
+      <button class="ghost" data-back>&larr; Menu</button>
+      <h2 id="soon-title">Coming soon</h2>
+    </div>
+    <div class="card">
+      <p class="muted">Not built yet. This screen is a placeholder.</p>
+    </div>
+  </section>
+
+  <!-- COURSE SCORECARD -->
+  <section class="page" id="page-course">
+    <div class="topbar">
+      <button class="ghost" data-back>&larr; Menu</button>
+      <h2 id="course-title">Course</h2>
+      <span class="who" id="course-who"></span>
+    </div>
+
+    <div id="course-error" class="error hidden"></div>
+
+    <div class="card">
+      <div class="tee-pick" id="tee-pick"><span>Tees</span></div>
+      <div id="scorecard"></div>
+      <div class="totals-bar">
+        <div class="tot-box"><span id="lab-out">Out</span><strong id="tot-out">0</strong></div>
+        <div class="tot-box"><span id="lab-in">In</span><strong id="tot-in">0</strong></div>
+        <div class="tot-box"><span>Total</span><strong id="tot-all">0</strong></div>
+        <div class="tot-box"><span>To par</span><strong id="tot-par">E</strong></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Live leaderboard</h2>
+      <ol class="leaderboard" id="leaderboard"></ol>
+      <p class="muted hidden" id="leaderboard-empty">Nobody has entered a score yet.</p>
+    </div>
+  </section>
+</div>
+
+<!-- FIREBASE -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+import {
+  getFirestore, collection, doc, setDoc, updateDoc, deleteField,
+  onSnapshot, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCcc_HxO2gbuYwmuoD7x8bQGIC0jIzxdv8",
+  authDomain: "golf-hq.firebaseapp.com",
+  projectId: "golf-hq",
+  storageBucket: "golf-hq.firebasestorage.app",
+  messagingSenderId: "856184833084",
+  appId: "1:856184833084:web:1a779eb21f3a2292b82f39"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// ===========================================================================
+// COURSE DATA
+// ===========================================================================
+// Straight off the printed scorecard. Static reference data, so it lives here
+// rather than in Firestore: no reads to pay for, and the card still draws with
+// no signal. New Kings North drops in as another entry in this object - the
+// renderer below is generic and needs no changes to support it.
+//
+// Each nine numbers its holes 1-9 exactly as the printed card does. Scores are
+// stored against 1-18 (open nine = 1-9, championship nine = 10-18).
+const COURSES = {
+  'world-tour-golf': {
+    name: 'World Tour Golf',
+    tees: ['BLACK', 'GOLD', 'SILVER'],
+    nines: [
+      {
+        title: 'Open Nine',
+        subtotal: 'Out',
+        holes: [
+          { inspiredBy: 'St. Andrews #1',        BLACK: 370, GOLD: 360, SILVER: 360, par: 4, hcp: 15 },
+          { inspiredBy: 'Pinehurst (#2) #16',    BLACK: 531, GOLD: 501, SILVER: 467, par: 5, hcp: 3  },
+          { inspiredBy: 'TPC at Sawgrass #17',   BLACK: 132, GOLD: 125, SILVER: 115, par: 3, hcp: 7  },
+          { inspiredBy: 'Colonial #12',          BLACK: 401, GOLD: 364, SILVER: 331, par: 4, hcp: 5  },
+          { inspiredBy: 'English Turn #15',      BLACK: 542, GOLD: 492, SILVER: 435, par: 5, hcp: 1  },
+          { inspiredBy: 'Pine Valley #12',       BLACK: 344, GOLD: 321, SILVER: 312, par: 4, hcp: 11 },
+          { inspiredBy: 'Augusta #16',           BLACK: 170, GOLD: 162, SILVER: 155, par: 3, hcp: 9  },
+          { inspiredBy: "Nat'l GC of Canada #1", BLACK: 391, GOLD: 360, SILVER: 355, par: 4, hcp: 13 },
+          { inspiredBy: 'St. Andrews #18',       BLACK: 354, GOLD: 341, SILVER: 329, par: 4, hcp: 17 }
+        ]
+      },
+      {
+        title: 'Championship Nine',
+        subtotal: 'In',
+        holes: [
+          { inspiredBy: 'Winged Foot (E) #18', BLACK: 380, GOLD: 368, SILVER: 355, par: 4, hcp: 12 },
+          { inspiredBy: 'Cypress Point #10',   BLACK: 491, GOLD: 472, SILVER: 462, par: 5, hcp: 10 },
+          { inspiredBy: 'Royal Troon #8',      BLACK: 126, GOLD: 116, SILVER: 116, par: 3, hcp: 18 },
+          { inspiredBy: 'Augusta #11',         BLACK: 455, GOLD: 435, SILVER: 344, par: 4, hcp: 2  },
+          { inspiredBy: 'Augusta #12',         BLACK: 155, GOLD: 155, SILVER: 142, par: 3, hcp: 14 },
+          { inspiredBy: 'Augusta #13',         BLACK: 485, GOLD: 485, SILVER: 430, par: 5, hcp: 8  },
+          { inspiredBy: 'Olympic #14',         BLACK: 418, GOLD: 418, SILVER: 402, par: 4, hcp: 6  },
+          { inspiredBy: 'Oakmont #14',         BLACK: 360, GOLD: 344, SILVER: 334, par: 4, hcp: 16 },
+          { inspiredBy: 'Bay Hill #11',        BLACK: 420, GOLD: 395, SILVER: 382, par: 4, hcp: 4  }
+        ]
+      }
+    ]
+  }
+};
+
+// Flat 1-18 view of a course, which is what scoring actually works against.
+function flatHoles(course) {
+  return course.nines.reduce((all, nine) => all.concat(nine.holes), []);
+}
+
+const MIN_STROKES = 1, MAX_STROKES = 20;
+
+// ===========================================================================
+// LOCAL IDENTITY
+// ===========================================================================
+// There is no Firebase Auth here, matching LaManna-Big-Year: "signing in" is
+// typing your name. What keeps two players apart is a random device id minted
+// once and kept in localStorage - that id is the document id of your score row,
+// so your phone only ever writes your own scores.
+//
+// Every access is wrapped: localStorage throws outright in some private-
+// browsing modes, and the app should still work for that visit.
+const NAME_KEY = 'golfhq_name';
+const ID_KEY   = 'golfhq_player_id';
+const TEE_KEY  = 'golfhq_tee';
+
+// Names that get the admin screens. Matched case-insensitively on the name
+// typed at login, so "david", "David" and "DAVID " all land the same.
+//
+// Worth being clear about what this is and is not: with no auth and a page
+// anyone can view the source of, this gates the UI only. Anyone who types
+// "David" gets the admin screens, and Firestore will still accept their
+// writes, because the rules cannot tell players apart. Add more names here as
+// needed; if admin ever needs to be genuinely restricted, that means Firebase
+// Auth plus a uid check in the rules.
+const ADMIN_NAMES = ['david'];
+const isAdmin = name => !!name && ADMIN_NAMES.includes(name.trim().toLowerCase());
+
+function readStore(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function writeStore(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function dropStore(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+let memoryId = null;
+function playerId() {
+  const stored = readStore(ID_KEY);
+  if (stored) return stored;
+  if (memoryId) return memoryId;
+  const fresh = 'p_' + (crypto.randomUUID
+    ? crypto.randomUUID().slice(0, 13)
+    : Math.random().toString(36).slice(2, 15));
+  writeStore(ID_KEY, fresh);
+  memoryId = fresh;
+  return fresh;
+}
+
+const playersRef = courseId => collection(db, 'courses', courseId, 'players');
+const playerRef  = courseId => doc(db, 'courses', courseId, 'players', playerId());
+
+// ===========================================================================
+// SCORING
+// ===========================================================================
+const sumScores = s => Object.values(s).reduce((a, b) => a + b, 0);
+const holesPlayed = s => Object.keys(s).length;
+
+function sumRange(scores, from, to) {
+  let total = 0;
+  for (let h = from; h <= to; h++) if (scores[h] !== undefined) total += scores[h];
+  return total;
+}
+
+// Counts only holes actually entered, so someone thru 5 is not shown as +40.
+function toPar(scores, holes) {
+  return Object.entries(scores).reduce((diff, entry) => {
+    const hole = holes[Number(entry[0]) - 1];
+    return hole ? diff + (entry[1] - hole.par) : diff;
+  }, 0);
+}
+const formatToPar = d => d === 0 ? 'E' : (d > 0 ? '+' + d : String(d));
+
+// ===========================================================================
+// SCREENS
+// ===========================================================================
+const $ = id => document.getElementById(id);
+function showPage(id) {
+  for (const p of document.querySelectorAll('.page')) p.classList.toggle('active', p.id === id);
+  window.scrollTo(0, 0);
+}
+function showError(el, msg) {
+  el.textContent = msg;
+  el.classList.toggle('hidden', !msg);
+}
+
+const state = {
+  name: readStore(NAME_KEY),
+  admin: false,
+  tee: readStore(TEE_KEY) || 'GOLD',
+  courseId: null,
+  course: null,
+  holes: [],
+  scores: {}
+};
+let unsubPlayers = null;
+
+// Firestore errors are precise but not plain English. Translate the handful a
+// player can actually cause into something actionable.
+function friendly(err) {
+  const code = err && err.code;
+  if (code === 'permission-denied') return 'Firestore rules rejected that. Run: firebase deploy --only firestore:rules';
+  if (code === 'unavailable') return 'Cannot reach Firestore - scores are saved on this phone and will sync when signal returns.';
+  if (code === 'failed-precondition' || code === 'not-found') return 'The Firestore database is not set up yet for project golf-hq.';
+  return (err && err.message) || 'Something went wrong.';
+}
+
+// ---------------------------------------------------------------------------
+// LOGIN
+// ---------------------------------------------------------------------------
+$('login-go').addEventListener('click', () => {
+  const name = $('login-name').value.trim();
+  if (!name) { $('login-name').focus(); return; }
+  state.name = name;
+  writeStore(NAME_KEY, name);
+  enterMenu();
+});
+$('login-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-go').click(); });
+
+// ---------------------------------------------------------------------------
+// MENU
+// ---------------------------------------------------------------------------
+function enterMenu() {
+  if (unsubPlayers) { unsubPlayers(); unsubPlayers = null; }
+  $('menu-name').textContent = state.name;
+  applyAdminUI();
+  showPage('page-menu');
+}
+
+// Admin is derived from the name on every load rather than stored, so there is
+// no stale admin flag left behind on a shared phone after someone switches.
+function applyAdminUI() {
+  const admin = isAdmin(state.name);
+  state.admin = admin;
+  $('admin-badge').classList.toggle('hidden', !admin);
+  for (const el of document.querySelectorAll('.admin-only')) {
+    el.classList.toggle('hidden', !admin);
+  }
+}
+
+$('menu-switch').addEventListener('click', () => {
+  dropStore(NAME_KEY);
+  state.name = null;
+  $('login-name').value = '';
+  showPage('page-login');
+});
+
+for (const btn of document.querySelectorAll('.menu-btn')) {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.go === 'course') openCourse(btn.dataset.course);
+    else { $('soon-title').textContent = btn.dataset.title; showPage('page-soon'); }
+  });
+}
+
+for (const btn of document.querySelectorAll('[data-back]')) {
+  btn.addEventListener('click', enterMenu);
+}
+
+// ---------------------------------------------------------------------------
+// COURSE
+// ---------------------------------------------------------------------------
+function openCourse(courseId) {
+  const course = COURSES[courseId];
+  if (!course) return;
+
+  state.courseId = courseId;
+  state.course = course;
+  state.holes = flatHoles(course);
+  state.scores = {};
+
+  $('course-title').textContent = course.name;
+  $('course-who').textContent = state.name;
+  showError($('course-error'), '');
+
+  buildTeePicker(course);
+  buildScorecard(course);
+  refreshTotals();
+  showPage('page-course');
+
+  // Register in the round. Not awaited on purpose: Firestore resolves a write
+  // only once the server acks it, so awaiting would hang the screen with no
+  // signal. The local write applies instantly and syncs when signal returns.
+  setDoc(playerRef(courseId), {
+    name: state.name.slice(0, 40),
+    tee: state.tee,
+    updatedAt: serverTimestamp()
+  }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
+
+  if (unsubPlayers) unsubPlayers();
+  unsubPlayers = onSnapshot(playersRef(courseId), snap => {
+    const players = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    renderLeaderboard(players);
+    const me = players.find(p => p.id === playerId());
+    if (me) {
+      state.scores = me.scores || {};
+      syncScoreInputs();
+      refreshTotals();
+    }
+  }, err => showError($('course-error'), friendly(err)));
+}
+
+function buildTeePicker(course) {
+  const box = $('tee-pick');
+  box.innerHTML = '<span>Tees</span>';
+  for (const tee of course.tees) {
+    const btn = document.createElement('button');
+    btn.className = 'tee-btn' + (tee === state.tee ? ' active' : '');
+    btn.textContent = tee;
+    btn.addEventListener('click', () => {
+      state.tee = tee;
+      writeStore(TEE_KEY, tee);
+      buildTeePicker(course);
+      highlightTee();
+      updateDoc(playerRef(state.courseId), { tee: tee, updatedAt: serverTimestamp() })
+        .catch(err => showError($('course-error'), friendly(err)));
+    });
+    box.appendChild(btn);
+  }
+}
+
+// Draws the printed card: one table per nine, holes across, the three tee
+// yardages / par / handicap down, and a score row you type into.
+function buildScorecard(course) {
+  const host = $('scorecard');
+  host.innerHTML = '';
+  let holeOffset = 0;
+
+  for (const nine of course.nines) {
+    const wrapEl = document.createElement('div');
+    wrapEl.className = 'nine';
+
+    const title = document.createElement('div');
+    title.className = 'nine-title';
+    title.textContent = nine.title;
+    wrapEl.appendChild(title);
+
+    const scroll = document.createElement('div');
+    scroll.className = 'table-scroll';
+    const table = document.createElement('table');
+    table.className = 'card-table';
+
+    const count = nine.holes.length;
+
+    // "Holes inspired by" - rotated to keep the columns narrow, like the card.
+    const rIns = table.insertRow();
+    rIns.className = 'r-inspired';
+    addLabel(rIns, 'Holes inspired by', 'inspired-lab');
+    nine.holes.forEach(h => {
+      const td = rIns.insertCell();
+      td.className = 'inspired';
+      const inner = document.createElement('div');
+      inner.textContent = h.inspiredBy;
+      td.appendChild(inner);
+    });
+    addCell(rIns, '', 'inspired');
+
+    const rHole = table.insertRow();
+    rHole.className = 'r-hole';
+    addLabel(rHole, 'Hole');
+    for (let i = 1; i <= count; i++) addCell(rHole, String(i));
+    addCell(rHole, nine.subtotal, 'sub');
+
+    for (const tee of course.tees) {
+      const r = table.insertRow();
+      r.className = 'r-' + tee.toLowerCase();
+      r.dataset.tee = tee;
+      addLabel(r, tee);
+      let total = 0;
+      nine.holes.forEach(h => { total += h[tee]; addCell(r, String(h[tee])); });
+      addCell(r, String(total), 'sub');
+    }
+
+    const rPar = table.insertRow();
+    rPar.className = 'r-par';
+    addLabel(rPar, 'Par');
+    let parTotal = 0;
+    nine.holes.forEach(h => { parTotal += h.par; addCell(rPar, String(h.par)); });
+    addCell(rPar, String(parTotal), 'sub');
+
+    const rHcp = table.insertRow();
+    rHcp.className = 'r-hcp';
+    addLabel(rHcp, 'Handicap');
+    nine.holes.forEach(h => addCell(rHcp, String(h.hcp)));
+    addCell(rHcp, '');
+
+    // The row you actually fill in.
+    const rScore = table.insertRow();
+    rScore.className = 'r-score';
+    addLabel(rScore, 'Score');
+    nine.holes.forEach((h, i) => {
+      const holeNo = holeOffset + i + 1;
+      const td = rScore.insertCell();
+      const input = document.createElement('input');
+      input.className = 'score';
+      input.type = 'number';
+      input.inputMode = 'numeric';
+      input.min = MIN_STROKES;
+      input.max = MAX_STROKES;
+      input.dataset.hole = holeNo;
+      input.addEventListener('input', () => commit(holeNo, input.value));
+      td.appendChild(input);
+    });
+    const subCell = rScore.insertCell();
+    subCell.className = 'sub';
+    subCell.dataset.nineSub = nine.subtotal;
+    subCell.textContent = '0';
+
+    scroll.appendChild(table);
+    wrapEl.appendChild(scroll);
+    host.appendChild(wrapEl);
+
+    holeOffset += count;
+  }
+
+  highlightTee();
+}
+
+function addLabel(row, text, extra) {
+  const th = document.createElement('th');
+  th.className = 'rowlab' + (extra ? ' ' + extra : '');
+  th.textContent = text;
+  row.appendChild(th);
+  return th;
+}
+function addCell(row, text, cls) {
+  const td = row.insertCell();
+  if (cls) td.className = cls;
+  td.textContent = text;
+  return td;
+}
+
+function highlightTee() {
+  for (const r of document.querySelectorAll('#scorecard tr[data-tee]')) {
+    r.classList.toggle('tee-on', r.dataset.tee === state.tee);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SCORE ENTRY
+// ---------------------------------------------------------------------------
+function commit(hole, raw) {
+  showError($('course-error'), '');
+
+  // Update locally first so totals move as you type, regardless of the network.
+  if (raw.trim() === '') delete state.scores[hole];
+  else {
+    const strokes = Number(raw);
+    // Out-of-range digits stay on screen but are not counted or written -
+    // someone typing "1" on the way to "12" should not flash a 1 onto
+    // everyone else's phone.
+    if (!Number.isInteger(strokes) || strokes < MIN_STROKES || strokes > MAX_STROKES) return;
+    state.scores[hole] = strokes;
+  }
+  refreshTotals();
+
+  // Not awaited: Firestore queues writes offline and syncs them when signal
+  // returns, which is exactly what you want mid-round.
+  const patch = { updatedAt: serverTimestamp(), name: state.name.slice(0, 40), tee: state.tee };
+  patch['scores.' + hole] = raw.trim() === '' ? deleteField() : state.scores[hole];
+  setDoc(playerRef(state.courseId), { name: state.name.slice(0, 40) }, { merge: true })
+    .then(() => updateDoc(playerRef(state.courseId), patch))
+    .catch(err => showError($('course-error'), friendly(err)));
+}
+
+// Pushes server values back into the inputs, but never the one being typed in.
+function syncScoreInputs() {
+  for (const input of document.querySelectorAll('#scorecard input.score')) {
+    if (input === document.activeElement) continue;
+    const val = state.scores[input.dataset.hole];
+    input.value = val === undefined ? '' : val;
+  }
+}
+
+function refreshTotals() {
+  const nines = state.course.nines;
+  const firstCount = nines[0].holes.length;
+  const out = sumRange(state.scores, 1, firstCount);
+  const inn = sumRange(state.scores, firstCount + 1, state.holes.length);
+
+  $('lab-out').textContent = nines[0].subtotal;
+  $('lab-in').textContent = nines[1] ? nines[1].subtotal : 'In';
+  $('tot-out').textContent = out;
+  $('tot-in').textContent = inn;
+  $('tot-all').textContent = out + inn;
+  $('tot-par').textContent = formatToPar(toPar(state.scores, state.holes));
+
+  const subs = document.querySelectorAll('#scorecard [data-nine-sub]');
+  if (subs[0]) subs[0].textContent = out;
+  if (subs[1]) subs[1].textContent = inn;
+}
+
+// ---------------------------------------------------------------------------
+// LEADERBOARD
+// ---------------------------------------------------------------------------
+function renderLeaderboard(players) {
+  // Best score relative to par first; ties broken by who has played further.
+  const sorted = players.slice().sort((a, b) => {
+    const sa = a.scores || {}, sb = b.scores || {};
+    const d = toPar(sa, state.holes) - toPar(sb, state.holes);
+    return d !== 0 ? d : holesPlayed(sb) - holesPlayed(sa);
+  });
+
+  $('leaderboard-empty').classList.toggle('hidden', sorted.length > 0);
+  const list = $('leaderboard');
+  list.innerHTML = '';
+
+  sorted.forEach((p, i) => {
+    const scores = p.scores || {};
+    const mine = p.id === playerId();
+
+    const li = document.createElement('li');
+    if (mine) li.className = 'me';
+
+    const rank = document.createElement('span');
+    rank.className = 'rank';
+    rank.textContent = i + 1;
+
+    // Names are typed by other players, so they go in as text, never as markup.
+    const who = document.createElement('span');
+    who.className = 'who2';
+    who.textContent = p.name || 'Player';
+    if (mine) {
+      const em = document.createElement('em');
+      em.textContent = ' (you)';
+      who.appendChild(em);
+    }
+
+    const thru = document.createElement('span');
+    thru.className = 'thru';
+    thru.textContent = 'thru ' + holesPlayed(scores);
+
+    const strokes = document.createElement('span');
+    strokes.className = 'strokes';
+    strokes.textContent = sumScores(scores);
+
+    const topar = document.createElement('span');
+    topar.className = 'topar';
+    topar.textContent = formatToPar(toPar(scores, state.holes));
+
+    li.appendChild(rank);
+    li.appendChild(who);
+    li.appendChild(thru);
+    li.appendChild(strokes);
+    li.appendChild(topar);
+    list.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// BOOT
+// ---------------------------------------------------------------------------
+(function boot() {
+  if (!state.name) { showPage('page-login'); return; }
+  enterMenu();
+})();
+</script>
+</body>
+</html>

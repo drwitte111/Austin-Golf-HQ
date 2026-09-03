@@ -1,0 +1,13 @@
+# Firebase CLI
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Python (tools/make_icons.py)
+__pycache__/
+*.pyc
+
+# OS
+Thumbs.db
+.DS_Store

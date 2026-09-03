@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// Austin Golf HQ - live scorecards.
+//
+// This app has no Firebase Auth, matching LaManna-Big-Year: a player "signs in"
+// by typing a name, and a random device id in localStorage is their score-row
+// document id. That means request.auth is always null here and these rules
+// CANNOT tell one player from another - including telling an admin from anyone
+// else, since admin is just a name in a list in the client.
+//
+// So access is open to anyone who has the page. What the rules still do is
+// enforce shape: a write has to look like a scorecard, sizes are capped, and
+// course documents are not writable from the client at all (course data ships
+// in index.html, not the database).
+//
+// If this ever needs to be genuinely private, the fix is Firebase Anonymous
+// Auth plus `request.auth.uid == playerId` on the players rule.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /courses/{courseId} {
+      allow read: if true;
+      // Course reference data lives in the app, so nothing should be writing
+      // these documents.
+      allow write: if false;
+
+      match /players/{playerId} {
+        allow read: if true;
+
+        allow create, update: if request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 40
+          && (!('scores' in request.resource.data.keys())
+              || (request.resource.data.scores is map
+                  && request.resource.data.scores.size() <= 18))
+          && (!('tee' in request.resource.data.keys())
+              || request.resource.data.tee is string);
+
+        allow delete: if true;
+      }
+    }
+
+    // Nothing else in this project is used by the app.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
