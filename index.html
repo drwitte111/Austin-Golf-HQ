@@ -669,10 +669,11 @@
   .dbar i { display: block; height: 100%; background: var(--green); border-radius: 5px; }
   .dnum { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px; }
 
-  .clock-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .clock-head p { flex: 1; min-width: 0; }
-  .clock-head select.pick { flex: none; width: 140px; height: 38px; }
-  .clock { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
+  .clock-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .clock-head select.pick { flex: 1; min-width: 0; height: 38px; font-size: 14px; }
+  /* 24 bars have to fit a phone, so the gap is hairline and the ticks thin out. */
+  .clock { display: flex; align-items: flex-end; gap: 2px; height: 104px; }
+  .clock.bydays { gap: 6px; }
   .chour {
     flex: 1; min-width: 0; height: 100%;
     display: flex; flex-direction: column; justify-content: flex-end;
@@ -682,7 +683,11 @@
   .chour.sel span { color: var(--sand); font-weight: 700; }
   .chour i { display: block; background: var(--green); border-radius: 2px 2px 0 0; min-height: 2px; }
   .chour i.empty { background: rgba(255,255,255,.10); }
-  .chour span { font-size: 8px; color: var(--muted); text-align: center; margin-top: 3px; }
+  .chour span {
+    font-size: 8px; color: var(--muted); text-align: center; margin-top: 3px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .clock.bydays .chour span { font-size: 10px; }
 
   .clock-readout {
     margin-top: 10px; padding: 9px 11px;
@@ -829,7 +834,7 @@
     <div class="card">
       <h2>When they land</h2>
       <div class="clock-head">
-        <p class="muted">Today, by the hour.</p>
+        <select class="pick" id="clock-day"></select>
         <select class="pick" id="clock-who"><option value="">Everyone</option></select>
       </div>
       <div id="drinks-clock"></div>
@@ -1530,7 +1535,8 @@ const state = {
   drinkLocal: null,
   drinkLog: null,
   drinksLoaded: false,
-  clockHour: null,
+  clockDay: null,
+  clockPick: null,
   clockWho: '',
   courseId: null,
   course: null,
@@ -2128,6 +2134,7 @@ function drinksOn(row, day) {
 }
 
 function openDrinks() {
+  if (!state.clockDay) state.clockDay = dayOf(new Date());
   $('drinks-day').textContent = prettyDay(dayOf(new Date()));
   renderDrinks();
   showPage('page-drinks');
@@ -2239,122 +2246,134 @@ function renderDrinksToday(rows, today) {
 
 // Chosen over a running timeline: on a phone, twenty-odd entries in a list say
 // far less than the shape of the day does. The feed below covers the detail.
+// The drink day runs 5am to 5am, so the chart runs 5am to 5am too — every hour
+// of it, always, rather than trimming to the ones with something in them. A
+// gap at 9am is information; a chart that silently omits 9am is not.
+const CLOCK_HOURS = [];
+for (let i = 0; i < 24; i++) CLOCK_HOURS.push((DAY_ROLLOVER_HOUR + i) % 24);
+
+const hourLabel = h => (h % 12 || 12) + (h < 12 ? 'am' : 'pm');
+const hourTick = h => (h % 12 || 12) + (h < 12 ? 'a' : 'p');
+
 function renderDrinksClock(rows, today) {
   const host = $('drinks-clock');
+  const readout = $('clock-readout');
   host.innerHTML = '';
 
-  // Keep the chosen person across re-renders; the list itself is rebuilt as
-  // people sign in.
-  const picker = $('clock-who');
-  const chosen = state.clockWho || '';
-  if (!picker.contains(document.activeElement)) {
-    picker.innerHTML = '';
-    const all = document.createElement('option');
-    all.value = '';
-    all.textContent = 'Everyone';
-    picker.appendChild(all);
-    for (const row of rows.slice().sort((a, b) =>
-      String(a.name || '').localeCompare(String(b.name || '')))) {
-      const opt = document.createElement('option');
-      opt.value = row.id;
-      opt.textContent = row.name || 'Player';
-      picker.appendChild(opt);
-    }
-    picker.value = chosen;
+  // Which days there are to look at, newest first, plus an all-days view.
+  const days = new Set([today]);
+  for (const row of rows) {
+    for (const key of Object.keys(row.days || {})) days.add(key);
+  }
+  const dayList = [...days].sort().reverse();
+  if (state.clockDay !== 'all' && dayList.indexOf(state.clockDay) === -1) {
+    state.clockDay = today;
   }
 
-  // Count per hour, and who it was, so a tapped bar can say more than a number.
-  const byHour = [];
-  for (let i = 0; i < 24; i++) byHour.push({ n: 0, who: {} });
+  const dayPicker = $('clock-day');
+  if (!dayPicker.contains(document.activeElement)) {
+    dayPicker.innerHTML = '';
+    for (const key of dayList) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = key === today ? 'Today' : prettyDay(key);
+      dayPicker.appendChild(opt);
+    }
+    const all = document.createElement('option');
+    all.value = 'all';
+    all.textContent = 'All days';
+    dayPicker.appendChild(all);
+    dayPicker.value = state.clockDay;
+  }
+
+  const chosen = state.clockWho || '';
+  const byDay = state.clockDay === 'all';
+
+  // One bucket list, whichever way we are slicing it, so the bars, the tap
+  // handling and the readout have a single shape to deal with.
+  const buckets = byDay
+    ? dayList.slice().sort().map(key => ({ key: key, tick: prettyDay(key), label: prettyDay(key), n: 0, who: {} }))
+    : CLOCK_HOURS.map(h => ({ key: h, tick: hourTick(h), label: hourLabel(h) + '\u2013' + hourLabel((h + 1) % 24), n: 0, who: {} }));
+  const index = {};
+  buckets.forEach((b, i) => { index[b.key] = i; });
+
   let total = 0;
   for (const row of rows) {
     if (chosen && row.id !== chosen) continue;
     const log = row.id === playerId() && state.drinkLog ? state.drinkLog : (row.log || []);
+    const name = row.name || 'Player';
     for (const entry of log) {
-      if (entry.day !== today || !entry.t) continue;
-      const h = Number(hourFormatter.format(new Date(entry.t)));
-      const name = row.name || 'Player';
-      byHour[h].n++;
-      byHour[h].who[name] = (byHour[h].who[name] || 0) + 1;
+      if (!entry.t) continue;
+      if (!byDay && entry.day !== state.clockDay) continue;
+      const key = byDay ? entry.day : Number(hourFormatter.format(new Date(entry.t)));
+      const slot = buckets[index[key]];
+      if (!slot) continue;
+      slot.n++;
+      slot.who[name] = (slot.who[name] || 0) + 1;
       total++;
     }
   }
 
-  const readout = $('clock-readout');
-  if (!total) {
-    const none = document.createElement('p');
-    none.className = 'muted';
-    none.textContent = state.clockWho
-      ? nameOf(state.clockWho) + ' has nothing logged today.'
-      : 'Nothing logged today.';
-    host.appendChild(none);
+  if (!buckets.length) {
     readout.classList.add('hidden');
     return;
   }
 
-  // Trim to the hours actually in play so the chart is not mostly empty.
-  let first = byHour.findIndex(x => x.n > 0);
-  let last = byHour.length - 1 - byHour.slice().reverse().findIndex(x => x.n > 0);
-  first = Math.max(0, first - 1);
-  last = Math.min(23, last + 1);
-  const peak = Math.max.apply(null, byHour.map(x => x.n));
-
-  const hourLabel = h => (h % 12 || 12) + (h < 12 ? 'am' : 'pm');
-
+  const peak = Math.max.apply(null, buckets.map(b => b.n)) || 1;
   const chart = document.createElement('div');
-  chart.className = 'clock';
-  for (let h = first; h <= last; h++) {
+  chart.className = 'clock' + (byDay ? ' bydays' : '');
+
+  buckets.forEach((bucket, i) => {
     const col = document.createElement('button');
     col.type = 'button';
-    col.className = 'chour' + (state.clockHour === h ? ' sel' : '');
-    col.setAttribute('aria-label',
-      byHour[h].n + ' at ' + hourLabel(h) + ', tap for detail');
+    col.className = 'chour' + (String(state.clockPick) === String(bucket.key) ? ' sel' : '');
+    col.setAttribute('aria-label', bucket.n + ' at ' + bucket.label + ', tap for detail');
 
     const bar = document.createElement('i');
-    bar.style.height = Math.round(byHour[h].n / peak * 100) + '%';
-    if (!byHour[h].n) bar.classList.add('empty');
+    bar.style.height = Math.round(bucket.n / peak * 100) + '%';
+    if (!bucket.n) bar.classList.add('empty');
 
     const lab = document.createElement('span');
-    lab.textContent = (h % 12 || 12) + (h < 12 ? 'a' : 'p');
+    // 24 hourly ticks will not fit at phone width, so label every third one.
+    lab.textContent = byDay || i % 3 === 0 ? bucket.tick : '';
 
     col.appendChild(bar);
     col.appendChild(lab);
-    // Tapping the same bar again clears it, so the readout is dismissible.
     col.addEventListener('click', () => {
-      state.clockHour = state.clockHour === h ? null : h;
+      state.clockPick = String(state.clockPick) === String(bucket.key) ? null : bucket.key;
       renderDrinks();
     });
     chart.appendChild(col);
-  }
-
-  const picked = state.clockHour;
-  if (picked === null || picked === undefined || picked < first || picked > last) {
-    readout.classList.add('hidden');
-  } else {
-    readout.classList.remove('hidden');
-    readout.innerHTML = '';
-
-    const n = byHour[picked].n;
-    const head = document.createElement('b');
-    head.textContent = n + (n === 1 ? ' drink' : ' drinks')
-      + ' · ' + hourLabel(picked) + '–' + hourLabel((picked + 1) % 24);
-    readout.appendChild(head);
-
-    const names = Object.keys(byHour[picked].who).sort();
-    if (names.length) {
-      const who = document.createElement('span');
-      who.textContent = names
-        .map(name => name + (byHour[picked].who[name] > 1 ? ' ×' + byHour[picked].who[name] : ''))
-        .join(', ');
-      readout.appendChild(who);
-    } else {
-      const none = document.createElement('span');
-      none.textContent = 'Nothing in this hour.';
-      readout.appendChild(none);
-    }
-  }
-
+  });
   host.appendChild(chart);
+
+  if (!total) {
+    const none = document.createElement('p');
+    none.className = 'muted';
+    none.textContent = chosen
+      ? nameOf(chosen) + ' has nothing logged ' + (byDay ? 'yet.' : 'that day.')
+      : 'Nothing logged ' + (byDay ? 'yet.' : 'that day.');
+    host.appendChild(none);
+  }
+
+  const picked = buckets[index[state.clockPick]];
+  if (state.clockPick === null || state.clockPick === undefined || !picked) {
+    readout.classList.add('hidden');
+    return;
+  }
+  readout.classList.remove('hidden');
+  readout.innerHTML = '';
+
+  const head = document.createElement('b');
+  head.textContent = picked.n + (picked.n === 1 ? ' drink' : ' drinks') + ' \u00b7 ' + picked.label;
+  readout.appendChild(head);
+
+  const names = Object.keys(picked.who).sort();
+  const who = document.createElement('span');
+  who.textContent = names.length
+    ? names.map(n => n + (picked.who[n] > 1 ? ' \u00d7' + picked.who[n] : '')).join(', ')
+    : 'Nothing in this ' + (byDay ? 'day' : 'hour') + '.';
+  readout.appendChild(who);
 }
 
 function renderDrinksFeed(rows, today) {
@@ -2439,7 +2458,13 @@ function renderDrinksHistory(rows, today) {
 
 $('clock-who').addEventListener('change', e => {
   state.clockWho = e.target.value;
-  state.clockHour = null;
+  state.clockPick = null;
+  renderDrinks();
+});
+
+$('clock-day').addEventListener('change', e => {
+  state.clockDay = e.target.value;
+  state.clockPick = null;
   renderDrinks();
 });
 
