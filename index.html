@@ -2470,6 +2470,32 @@ function renderDrinksClock(rows, today) {
     dayPicker.value = state.clockDay;
   }
 
+  // Everyone who could appear, not only those with a drink logged, so you can
+  // filter to a person and see plainly that they have none.
+  const people = {};
+  for (const person of allPlayers()) people[person.id] = person.name || 'Player';
+  for (const row of rows) if (!people[row.id]) people[row.id] = row.name || 'Player';
+
+  const whoPicker = $('clock-who');
+  if (!whoPicker.contains(document.activeElement)) {
+    const keep = state.clockWho || '';
+    whoPicker.innerHTML = '';
+    const all = document.createElement('option');
+    all.value = '';
+    all.textContent = 'Everyone';
+    whoPicker.appendChild(all);
+    Object.keys(people)
+      .sort((a, b) => String(people[a]).localeCompare(String(people[b])))
+      .forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = people[id];
+        whoPicker.appendChild(opt);
+      });
+    whoPicker.value = keep;
+    if (whoPicker.value !== keep) state.clockWho = '';   // that person is gone
+  }
+
   const chosen = state.clockWho || '';
   const byDay = state.clockDay === 'all';
 
