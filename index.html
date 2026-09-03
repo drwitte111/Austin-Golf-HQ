@@ -911,7 +911,7 @@
     </div>
 
     <div class="card">
-      <h2>Latest</h2>
+      <h2 id="drinks-feed-title">Latest</h2>
       <ol class="feed" id="drinks-feed"></ol>
       <p class="muted hidden" id="drinks-feed-empty">Nothing yet today.</p>
     </div>
@@ -1458,7 +1458,7 @@ function matchesOf(segment) {
     .filter(m => m.a && m.b && m.a.p1 && m.a.p2 && m.b.p1 && m.b.p2);
 }
 
-const duoName = duo => duo ? nameOf(duo.p1) + ' & ' + nameOf(duo.p2) : '—';
+const duoName = duo => duo ? shortNameOf(duo.p1) + ' & ' + shortNameOf(duo.p2) : '—';
 
 /** W-L per player across the whole trip, counting only finished nines. */
 function tripRecords() {
@@ -1764,6 +1764,14 @@ function roster(courseId) { return mergeByName(state.rosters[courseId] || []); }
 /** Drink rows, with same-name duplicates collapsed the same way. */
 function drinkRows() { return mergeByName(state.drinks || []); }
 
+/**
+ * Everyone here is on first-name terms, and a phone column is narrow: "Brennan"
+ * sits on one line where "Brennan Schlubach" wraps to two and shoves the scores
+ * about. Display only, deliberately — the stored name keeps whatever the player
+ * typed, so none of the writes that carry a name truncate anybody.
+ */
+const firstName = name => String(name || '').trim().split(/\s+/)[0] || 'Player';
+
 function nameOf(id) {
   for (const courseId of Object.keys(COURSES)) {
     const found = roster(courseId).find(p => p.id === id);
@@ -1771,6 +1779,9 @@ function nameOf(id) {
   }
   return 'Player';
 }
+
+/** nameOf for the screen: the first name on its own. */
+const shortNameOf = id => firstName(nameOf(id));
 
 /** Everyone in the trip, deduplicated across courses. */
 function allPlayers() {
@@ -1855,7 +1866,7 @@ function enterMenu() {
   flushAllWrites();
   adminCourseId = null;
   state.editingOther = false;
-  $('menu-name').textContent = state.name;
+  $('menu-name').textContent = firstName(state.name);
   applyAdminUI();
   showPage('page-menu');
 }
@@ -1909,7 +1920,7 @@ function renderMatches() {
   line.classList.remove('hidden');
   if (mate) {
     line.className = 'partner';
-    line.textContent = 'Scramble with ' + nameOf(mate);
+    line.textContent = 'Scramble with ' + shortNameOf(mate);
   } else {
     // Without a duo there is nobody to copy the score to, and saying nothing
     // looks identical to working. Say it plainly instead.
@@ -1985,7 +1996,7 @@ function renderRecords() {
     // Names are typed by players, so they go in as text, never as markup.
     const who = document.createElement('span');
     who.className = 'who2';
-    who.textContent = row.p.name || 'Player';
+    who.textContent = firstName(row.p.name);
     if (row.p.id === playerId()) {
       const em = document.createElement('em');
       em.textContent = ' (you)';
@@ -2237,7 +2248,7 @@ function renderCards() {
         for (const player of group.solo) {
           const scores = player.scores || {};
           scoreRow({
-            label: player.name || 'Player',
+            label: firstName(player.name),
             mine: player.id === playerId(),
             get: holeNo => scores[holeNo]
           });
@@ -2411,7 +2422,7 @@ function renderDrinksToday(rows, today) {
 
     const nm = document.createElement('span');
     nm.className = 'dname';
-    nm.textContent = item.r.name || 'Player';   // player-typed: text only
+    nm.textContent = firstName(item.r.name);    // player-typed: text only
 
     const bar = document.createElement('span');
     bar.className = 'dbar';
@@ -2473,8 +2484,8 @@ function renderDrinksClock(rows, today) {
   // Everyone who could appear, not only those with a drink logged, so you can
   // filter to a person and see plainly that they have none.
   const people = {};
-  for (const person of allPlayers()) people[person.id] = person.name || 'Player';
-  for (const row of rows) if (!people[row.id]) people[row.id] = row.name || 'Player';
+  for (const person of allPlayers()) people[person.id] = firstName(person.name);
+  for (const row of rows) if (!people[row.id]) people[row.id] = firstName(row.name);
 
   const whoPicker = $('clock-who');
   if (!whoPicker.contains(document.activeElement)) {
@@ -2511,7 +2522,7 @@ function renderDrinksClock(rows, today) {
   for (const row of rows) {
     if (chosen && row.id !== chosen) continue;
     const log = row.id === playerId() && state.drinkLog ? state.drinkLog : (row.log || []);
-    const name = row.name || 'Player';
+    const name = firstName(row.name);
     for (const entry of log) {
       if (!entry.t) continue;
       if (!byDay && entry.day !== state.clockDay) continue;
@@ -2570,7 +2581,7 @@ function renderDrinksClock(rows, today) {
     const none = document.createElement('p');
     none.className = 'muted';
     none.textContent = chosen
-      ? nameOf(chosen) + ' has nothing logged ' + (byDay ? 'yet.' : 'that day.')
+      ? shortNameOf(chosen) + ' has nothing logged ' + (byDay ? 'yet.' : 'that day.')
       : 'Nothing logged ' + (byDay ? 'yet.' : 'that day.');
     host.appendChild(none);
   }
@@ -2599,18 +2610,33 @@ function renderDrinksFeed(rows, today) {
   const host = $('drinks-feed');
   host.innerHTML = '';
 
+  // The chart's person filter carries down here, so the two cards never
+  // disagree about who you are looking at. The day picker deliberately does
+  // not: this card is the detail behind today, and says so.
+  const chosen = state.clockWho || '';
+  const chosenName = chosen
+    ? firstName((rows.find(row => row.id === chosen) || {}).name || nameOf(chosen))
+    : '';
+
   const entries = [];
   for (const row of rows) {
+    if (chosen && row.id !== chosen) continue;
     const log = row.id === playerId() && state.drinkLog ? state.drinkLog : (row.log || []);
     let n = 0;
     for (const entry of log) {
       if (entry.day !== today || !entry.t) continue;
       n++;
-      entries.push({ t: entry.t, name: row.name || 'Player', nth: n, id: row.id });
+      entries.push({ t: entry.t, name: firstName(row.name), nth: n, id: row.id });
     }
   }
   entries.sort((a, b) => b.t - a.t);
-  const shown = entries.slice(0, 20);
+  // Everyone at once needs a cap to stay readable; one person's day never does.
+  const shown = chosen ? entries : entries.slice(0, 20);
+
+  $('drinks-feed-title').textContent = chosen ? 'Latest · ' + chosenName : 'Latest';
+  $('drinks-feed-empty').textContent = chosen
+    ? chosenName + ' has had nothing today.'
+    : 'Nothing yet today.';
   $('drinks-feed-empty').classList.toggle('hidden', shown.length > 0);
 
   for (const entry of shown) {
@@ -2661,7 +2687,7 @@ function renderDrinksHistory(rows, today) {
   for (const row of people) {
     const tr = table.insertRow();
     tr.className = 'r-player' + (row.id === playerId() ? ' me' : '');
-    addLabel(tr, row.name || 'Player');
+    addLabel(tr, firstName(row.name));
     let total = 0;
     for (const key of dayList) {
       const n = row.id === playerId() && key === today
@@ -2720,7 +2746,7 @@ function srow(cells, cls) {
 function nameCell(player, suffix) {
   const frag = document.createDocumentFragment();
   // Names are typed by players, so they go in as text, never as markup.
-  frag.appendChild(document.createTextNode(player.name || 'Player'));
+  frag.appendChild(document.createTextNode(firstName(player.name)));
   if (player.id === playerId()) {
     const em = document.createElement('em');
     em.textContent = ' (you)';
@@ -2886,7 +2912,7 @@ function renderContestResults() {
       const who = document.createElement('span');
       who.className = 'contest-who';
       const winner = winners[contest.id];
-      who.textContent = winner ? nameOf(winner) : 'Not yet';
+      who.textContent = winner ? shortNameOf(winner) : 'Not yet';
       if (!winner) who.classList.add('pending');
 
       row.appendChild(what); row.appendChild(who);
@@ -2952,7 +2978,7 @@ function playerSelect(value, onChange) {
   for (const p of allPlayers()) {
     const opt = document.createElement('option');
     opt.value = p.id;
-    opt.textContent = p.name || 'Player';
+    opt.textContent = firstName(p.name);
     sel.appendChild(opt);
   }
   sel.value = value || '';
@@ -3185,7 +3211,7 @@ function renderAdminRoster() {
     row.className = 'admin-row';
 
     const nm = document.createElement('b');
-    nm.textContent = p.name || 'Player';          // player-typed: text only
+    nm.textContent = firstName(p.name);           // player-typed: text only
     if (p.id === playerId()) {
       const em = document.createElement('em');
       em.textContent = ' (you)';
@@ -3207,8 +3233,8 @@ function renderAdminRoster() {
     const del = document.createElement('button');
     del.className = 'admin-del';
     del.textContent = '\u2715';
-    del.setAttribute('aria-label', 'Remove ' + (p.name || 'player'));
-    del.addEventListener('click', () => askDelete(p.id, p.name || 'Player'));
+    del.setAttribute('aria-label', 'Remove ' + firstName(p.name));
+    del.addEventListener('click', () => askDelete(p.id, firstName(p.name)));
 
     const item = document.createElement('div');
     item.className = 'admin-item';
@@ -3248,7 +3274,7 @@ function renderAdminPlayers() {
 
     // Names are typed by players, so they go in as text, never as markup.
     const nm = document.createElement('b');
-    nm.textContent = p.name || 'Player';
+    nm.textContent = firstName(p.name);
     if (p.id === playerId()) {
       const em = document.createElement('em');
       em.textContent = ' (you)';
@@ -3276,8 +3302,8 @@ function renderAdminPlayers() {
     const del = document.createElement('button');
     del.className = 'admin-del';
     del.textContent = '✕';
-    del.setAttribute('aria-label', 'Delete ' + (p.name || 'player'));
-    del.addEventListener('click', () => askDelete(p.id, p.name || 'Player'));
+    del.setAttribute('aria-label', 'Delete ' + firstName(p.name));
+    del.addEventListener('click', () => askDelete(p.id, firstName(p.name)));
 
     const item = document.createElement('div');
     item.className = 'admin-item';
@@ -3365,14 +3391,14 @@ function openCourse(courseId, target) {
   state.editingOther = !!target;
 
   $('course-title').textContent = course.name;
-  $('course-who').textContent = state.targetName;
+  $('course-who').textContent = firstName(state.targetName);
   showError($('course-error'), '');
 
   // Editing someone else is easy to forget you are doing, so it stays on screen.
   const banner = $('editing-banner');
   banner.classList.toggle('hidden', !state.editingOther);
   banner.textContent = state.editingOther
-    ? 'Admin — editing ' + state.targetName + "'s card"
+    ? 'Admin — editing ' + firstName(state.targetName) + "'s card"
     : '';
 
   $('course-back').textContent = state.editingOther ? '← Admin' : '← Menu';
