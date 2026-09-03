@@ -213,6 +213,16 @@
       linear-gradient(100deg, rgba(8,20,14,.90), rgba(8,20,14,.55) 58%, rgba(8,20,14,.22)),
       url('course-world-tour.webp');
   }
+  .menu-btn[data-art="scorecard"] {
+    background-image:
+      linear-gradient(100deg, rgba(8,20,14,.92), rgba(8,20,14,.62) 58%, rgba(8,20,14,.26)),
+      url('tile-scorecard.webp');
+  }
+  .menu-btn[data-art="stats"] {
+    background-image:
+      linear-gradient(100deg, rgba(8,20,14,.90), rgba(8,20,14,.55) 58%, rgba(8,20,14,.20)),
+      url('tile-stats.webp');
+  }
   .menu-btn[data-art="beverage"] {
     background-image:
       linear-gradient(100deg, rgba(8,20,14,.90), rgba(8,20,14,.55) 58%, rgba(8,20,14,.20)),
@@ -744,13 +754,13 @@
         <button class="ghost" id="menu-switch">Not you?</button>
       </div>
       <div class="menu-grid">
-        <button class="menu-btn" data-go="overview">
+        <button class="menu-btn" data-go="overview" data-art="scorecard">
           <strong>Live Scorecard</strong><span>Everyone's cards, hole by hole</span>
         </button>
         <button class="menu-btn" data-go="drinks" data-art="beverage">
           <strong>Beverage Counter</strong><span>Tally the day&rsquo;s drinks</span>
         </button>
-        <button class="menu-btn" data-go="stats">
+        <button class="menu-btn" data-go="stats" data-art="stats">
           <strong>Stats</strong><span>Standings, skins, contests</span>
         </button>
         <button class="menu-btn" data-go="course" data-course="world-tour-golf" data-art="world-tour">
