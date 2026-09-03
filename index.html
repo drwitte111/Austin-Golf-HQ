@@ -673,10 +673,24 @@
   .clock-head p { flex: 1; min-width: 0; }
   .clock-head select.pick { flex: none; width: 140px; height: 38px; }
   .clock { display: flex; align-items: flex-end; gap: 3px; height: 96px; }
-  .chour { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+  .chour {
+    flex: 1; min-width: 0; height: 100%;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    min-height: 0; padding: 0; border: 0; background: none; border-radius: 0;
+  }
+  .chour.sel i { background: var(--sand); }
+  .chour.sel span { color: var(--sand); font-weight: 700; }
   .chour i { display: block; background: var(--green); border-radius: 2px 2px 0 0; min-height: 2px; }
   .chour i.empty { background: rgba(255,255,255,.10); }
   .chour span { font-size: 8px; color: var(--muted); text-align: center; margin-top: 3px; }
+
+  .clock-readout {
+    margin-top: 10px; padding: 9px 11px;
+    background: rgba(0,0,0,.26); border: 1px solid rgba(255,255,255,.12);
+    border-radius: var(--radius);
+  }
+  .clock-readout b { display: block; font-size: 14px; color: var(--sand); }
+  .clock-readout span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
 
   ol.feed { list-style: none; }
   ol.feed li {
@@ -819,6 +833,7 @@
         <select class="pick" id="clock-who"><option value="">Everyone</option></select>
       </div>
       <div id="drinks-clock"></div>
+      <div id="clock-readout" class="clock-readout hidden"></div>
     </div>
 
     <div class="card">
@@ -1515,6 +1530,7 @@ const state = {
   drinkLocal: null,
   drinkLog: null,
   drinksLoaded: false,
+  clockHour: null,
   clockWho: '',
   courseId: null,
   course: null,
@@ -2247,18 +2263,24 @@ function renderDrinksClock(rows, today) {
     picker.value = chosen;
   }
 
-  const byHour = new Array(24).fill(0);
+  // Count per hour, and who it was, so a tapped bar can say more than a number.
+  const byHour = [];
+  for (let i = 0; i < 24; i++) byHour.push({ n: 0, who: {} });
   let total = 0;
   for (const row of rows) {
     if (chosen && row.id !== chosen) continue;
     const log = row.id === playerId() && state.drinkLog ? state.drinkLog : (row.log || []);
     for (const entry of log) {
       if (entry.day !== today || !entry.t) continue;
-      byHour[Number(hourFormatter.format(new Date(entry.t)))]++;
+      const h = Number(hourFormatter.format(new Date(entry.t)));
+      const name = row.name || 'Player';
+      byHour[h].n++;
+      byHour[h].who[name] = (byHour[h].who[name] || 0) + 1;
       total++;
     }
   }
 
+  const readout = $('clock-readout');
   if (!total) {
     const none = document.createElement('p');
     none.className = 'muted';
@@ -2266,33 +2288,72 @@ function renderDrinksClock(rows, today) {
       ? nameOf(state.clockWho) + ' has nothing logged today.'
       : 'Nothing logged today.';
     host.appendChild(none);
+    readout.classList.add('hidden');
     return;
   }
 
   // Trim to the hours actually in play so the chart is not mostly empty.
-  let first = byHour.findIndex(n => n > 0);
-  let last = byHour.length - 1 - byHour.slice().reverse().findIndex(n => n > 0);
+  let first = byHour.findIndex(x => x.n > 0);
+  let last = byHour.length - 1 - byHour.slice().reverse().findIndex(x => x.n > 0);
   first = Math.max(0, first - 1);
   last = Math.min(23, last + 1);
-  const peak = Math.max.apply(null, byHour);
+  const peak = Math.max.apply(null, byHour.map(x => x.n));
+
+  const hourLabel = h => (h % 12 || 12) + (h < 12 ? 'am' : 'pm');
 
   const chart = document.createElement('div');
   chart.className = 'clock';
   for (let h = first; h <= last; h++) {
-    const col = document.createElement('div');
-    col.className = 'chour';
+    const col = document.createElement('button');
+    col.type = 'button';
+    col.className = 'chour' + (state.clockHour === h ? ' sel' : '');
+    col.setAttribute('aria-label',
+      byHour[h].n + ' at ' + hourLabel(h) + ', tap for detail');
 
     const bar = document.createElement('i');
-    bar.style.height = Math.round(byHour[h] / peak * 100) + '%';
-    if (!byHour[h]) bar.classList.add('empty');
-    bar.title = byHour[h] + ' at ' + (h % 12 || 12) + (h < 12 ? 'am' : 'pm');
+    bar.style.height = Math.round(byHour[h].n / peak * 100) + '%';
+    if (!byHour[h].n) bar.classList.add('empty');
 
     const lab = document.createElement('span');
     lab.textContent = (h % 12 || 12) + (h < 12 ? 'a' : 'p');
 
-    col.appendChild(bar); col.appendChild(lab);
+    col.appendChild(bar);
+    col.appendChild(lab);
+    // Tapping the same bar again clears it, so the readout is dismissible.
+    col.addEventListener('click', () => {
+      state.clockHour = state.clockHour === h ? null : h;
+      renderDrinks();
+    });
     chart.appendChild(col);
   }
+
+  const picked = state.clockHour;
+  if (picked === null || picked === undefined || picked < first || picked > last) {
+    readout.classList.add('hidden');
+  } else {
+    readout.classList.remove('hidden');
+    readout.innerHTML = '';
+
+    const n = byHour[picked].n;
+    const head = document.createElement('b');
+    head.textContent = n + (n === 1 ? ' drink' : ' drinks')
+      + ' · ' + hourLabel(picked) + '–' + hourLabel((picked + 1) % 24);
+    readout.appendChild(head);
+
+    const names = Object.keys(byHour[picked].who).sort();
+    if (names.length) {
+      const who = document.createElement('span');
+      who.textContent = names
+        .map(name => name + (byHour[picked].who[name] > 1 ? ' ×' + byHour[picked].who[name] : ''))
+        .join(', ');
+      readout.appendChild(who);
+    } else {
+      const none = document.createElement('span');
+      none.textContent = 'Nothing in this hour.';
+      readout.appendChild(none);
+    }
+  }
+
   host.appendChild(chart);
 }
 
@@ -2378,6 +2439,7 @@ function renderDrinksHistory(rows, today) {
 
 $('clock-who').addEventListener('change', e => {
   state.clockWho = e.target.value;
+  state.clockHour = null;
   renderDrinks();
 });
 
