@@ -672,32 +672,30 @@
   .clock-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .clock-head select.pick { flex: 1; min-width: 0; height: 38px; font-size: 14px; }
   /* 24 bars have to fit a phone, so the gap is hairline and the ticks thin out. */
-  .clock { display: flex; align-items: flex-end; gap: 2px; height: 104px; position: relative; }
-  .clock.bydays { gap: 6px; }
-  /* One continuous rule at the foot of the bars. Drawn on the chart rather than
-     per column so it cannot be broken up by the gaps between them. */
-  .clock::after {
-    content: ''; position: absolute; left: 0; right: 0; bottom: 15px;
-    border-top: 1px solid rgba(255,255,255,.16);
+  .clock {
+    display: flex; align-items: flex-end; gap: 2px; height: 104px;
+    border-bottom: 1px solid rgba(255,255,255,.16);
   }
+  .clock.bydays { gap: 6px; }
+
+  .clock-axis { display: flex; gap: 2px; margin-top: 4px; }
+  .clock-axis.bydays { gap: 6px; }
+  .clock-axis span {
+    flex: 1; min-width: 0;
+    font-size: 8px; line-height: 12px; color: var(--muted);
+    text-align: center; white-space: nowrap; overflow: hidden;
+  }
+  .clock-axis.bydays span { font-size: 10px; }
+  .clock-axis span.sel { color: var(--sand); font-weight: 700; }
+
   .chour {
     flex: 1; min-width: 0; height: 100%;
     display: flex; flex-direction: column; justify-content: flex-end;
     min-height: 0; padding: 0; border: 0; background: none; border-radius: 0;
   }
-  .chour.sel i { background: var(--sand); }
-  .chour.sel span { color: var(--sand); font-weight: 700; }
   .chour i { display: block; background: var(--green); border-radius: 2px 2px 0 0; min-height: 2px; }
   .chour i.empty { background: rgba(255,255,255,.10); }
-  /* Every column reserves the same label space whether or not it is ticked.
-     An empty span collapses to nothing, which let unlabelled columns drop their
-     bar ~11px lower than labelled ones and made the baseline wander. */
-  .chour span {
-    display: block; height: 12px; line-height: 12px; margin-top: 3px;
-    font-size: 8px; color: var(--muted); text-align: center;
-    white-space: nowrap; overflow: hidden;
-  }
-  .clock.bydays .chour span { font-size: 10px; }
+  .chour.sel i { background: var(--sand); }
 
   .clock-readout {
     margin-top: 10px; padding: 9px 11px;
@@ -2330,8 +2328,15 @@ function renderDrinksClock(rows, today) {
   }
 
   const peak = Math.max.apply(null, buckets.map(b => b.n)) || 1;
+
+  // Bars and tick labels are two separate rows sharing one column layout.
+  // With the label inside the column, its position rode on the bar's rendered
+  // height, so the baseline drifted by a pixel or eleven depending on whether
+  // the column was ticked. Split apart, the axis cannot move.
   const chart = document.createElement('div');
   chart.className = 'clock' + (byDay ? ' bydays' : '');
+  const axis = document.createElement('div');
+  axis.className = 'clock-axis' + (byDay ? ' bydays' : '');
 
   buckets.forEach((bucket, i) => {
     const col = document.createElement('button');
@@ -2343,19 +2348,21 @@ function renderDrinksClock(rows, today) {
     bar.style.height = Math.round(bucket.n / peak * 100) + '%';
     if (!bucket.n) bar.classList.add('empty');
 
-    const lab = document.createElement('span');
-    // 24 hourly ticks will not fit at phone width, so label every third one.
-    lab.textContent = byDay || i % 3 === 0 ? bucket.tick : '';
-
     col.appendChild(bar);
-    col.appendChild(lab);
     col.addEventListener('click', () => {
       state.clockPick = String(state.clockPick) === String(bucket.key) ? null : bucket.key;
       renderDrinks();
     });
     chart.appendChild(col);
+
+    const lab = document.createElement('span');
+    // 24 hourly ticks will not fit at phone width, so label every third one.
+    lab.textContent = byDay || i % 3 === 0 ? bucket.tick : '';
+    if (String(state.clockPick) === String(bucket.key)) lab.className = 'sel';
+    axis.appendChild(lab);
   });
   host.appendChild(chart);
+  host.appendChild(axis);
 
   if (!total) {
     const none = document.createElement('p');
