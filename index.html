@@ -19,6 +19,15 @@
 <meta name="apple-mobile-web-app-title" content="Golf HQ">
 <!-- Stops iOS turning bare numbers on the scorecard into tappable phone links. -->
 <meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="dark">
+
+<!-- The two hosts every session hits within the first second. Opening the TLS
+     connections while the HTML is still parsing saves a full round trip each,
+     which is the difference you actually feel on course cell service. -->
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<!-- 13KB, and it is the backdrop of the first screen you see. -->
+<link rel="preload" as="image" href="bg-course.webp" type="image/webp">
 
 <!-- AUTO-UPDATE CHECK - runs before anything else. Asks GitHub Pages for
      headers only (HEAD = no body) and keys off the ETag, which changes by
@@ -63,7 +72,13 @@
     --radius: 6px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html { height: 100%; }
+  html {
+    height: 100%;
+    /* Without this iOS inflates text on its own when the phone turns, which
+       reflows the whole scorecard. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--fairway);
@@ -79,6 +94,23 @@
 
   .page { display: none; }
   .page.active { display: block; }
+
+  /* The course photo backs the two entry screens, set on <body> so it fills the
+     viewport rather than just the card's box. The scorecard screen deliberately
+     stays flat — a photo behind a dense numeric table costs paint time and
+     hurts legibility, and that is the screen people stare at for four hours.
+     background-attachment stays at the default 'scroll': 'fixed' forces a
+     full-page repaint on every scroll frame on mobile and is one of the worst
+     sources of jank there is. */
+  body[data-page="page-login"],
+  body[data-page="page-menu"] {
+    background-image:
+      linear-gradient(to bottom, rgba(10, 26, 17, .70), rgba(10, 26, 17, .88) 60%, rgba(10, 26, 17, .96)),
+      url('bg-course.webp');
+    background-size: cover;
+    background-position: center top;
+    background-repeat: no-repeat;
+  }
 
   /* viewport-fit=cover puts the page under the notch and home indicator, so
      every outer edge pads to the safe area and falls back to a plain gutter on
@@ -134,8 +166,10 @@
   }
 
   /* MENU */
+  /* One column on a phone held upright, which is how this is almost always
+     used — the course tiles need the width to read as photographs. */
   .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  @media (max-width: 460px) { .menu-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 620px) { .menu-grid { grid-template-columns: 1fr; } }
   .menu-btn {
     display: block; width: 100%; text-align: left;
     padding: 20px 18px;
@@ -147,6 +181,33 @@
   .menu-btn strong { display: block; font-size: 17px; letter-spacing: .02em; }
   .menu-btn span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
   .menu-btn.soon strong { color: var(--muted); }
+
+  /* Course tiles carry their own artwork. The scrim is a left-to-right ramp so
+     the text stays legible over whatever the photo happens to be doing, which
+     matters if these get swapped for real course photographs later. */
+  .menu-btn[data-art] {
+    min-height: 112px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-color: rgba(255,255,255,.22);
+    text-shadow: 0 1px 3px rgba(0,0,0,.75);
+  }
+  .menu-btn[data-art] strong { font-size: 19px; }
+  .menu-btn[data-art] span { color: rgba(243,239,226,.82); }
+  .menu-btn[data-art="world-tour"] {
+    background-image:
+      linear-gradient(100deg, rgba(8,20,14,.90), rgba(8,20,14,.55) 58%, rgba(8,20,14,.22)),
+      url('course-world-tour.webp');
+  }
+  .menu-btn[data-art="kings-north"] {
+    background-image:
+      linear-gradient(100deg, rgba(8,20,14,.90), rgba(8,20,14,.58) 58%, rgba(8,20,14,.28)),
+      url('course-kings-north.webp');
+  }
+  /* A tile that is not built yet reads as dimmed rather than fully lit. */
+  .menu-btn.soon[data-art] { filter: saturate(.55) brightness(.72); }
 
   .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
   .topbar h2 { font-size: 18px; flex: 1; }
@@ -310,10 +371,10 @@
         <button class="menu-btn soon" data-go="soon" data-title="Stats">
           <strong>Stats</strong><span>Coming soon</span>
         </button>
-        <button class="menu-btn" data-go="course" data-course="world-tour-golf">
+        <button class="menu-btn" data-go="course" data-course="world-tour-golf" data-art="world-tour">
           <strong>World Tour Golf</strong><span>Enter your scorecard</span>
         </button>
-        <button class="menu-btn soon" data-go="soon" data-title="New Kings North">
+        <button class="menu-btn soon" data-go="soon" data-title="New Kings North" data-art="kings-north">
           <strong>New Kings North</strong><span>Coming soon</span>
         </button>
         <!-- Only rendered for an admin session; see ADMIN_NAMES below. -->
@@ -513,6 +574,8 @@ const formatToPar = d => d === 0 ? 'E' : (d > 0 ? '+' + d : String(d));
 const $ = id => document.getElementById(id);
 function showPage(id) {
   for (const p of document.querySelectorAll('.page')) p.classList.toggle('active', p.id === id);
+  // Drives which screens get the course backdrop (see body[data-page=...]).
+  document.body.dataset.page = id;
   window.scrollTo(0, 0);
 }
 function showError(el, msg) {
@@ -557,6 +620,8 @@ $('login-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('log
 // MENU
 // ---------------------------------------------------------------------------
 function enterMenu() {
+  // Send anything still sitting in a debounce window before we drop the course.
+  flushAllWrites();
   if (unsubPlayers) { unsubPlayers(); unsubPlayers = null; }
   $('menu-name').textContent = state.name;
   applyAdminUI();
@@ -739,6 +804,9 @@ function buildScorecard(course) {
       input.max = MAX_STROKES;
       input.dataset.hole = holeNo;
       input.addEventListener('input', () => commit(holeNo, input.value));
+      // Moving off a hole means you are done with it — send it now rather than
+      // waiting out the debounce.
+      input.addEventListener('blur', () => flushWrite(holeNo));
       td.appendChild(input);
     });
     const subCell = rScore.insertCell();
@@ -793,6 +861,30 @@ function commit(hole, raw) {
     state.scores[hole] = strokes;
   }
   refreshTotals();
+  queueWrite(hole);
+}
+
+// One pending network write per hole, coalesced.
+//
+// Typing "12" passes through "1" on the way, and 1 is a legal score — without
+// this, every other phone in the group flashes a 1 on that hole before the 12
+// lands, and we pay two writes, two radio wake-ups and two snapshot round trips
+// for a single entry. On a phone on cell service that is the difference between
+// the app feeling light and feeling like it is chewing the battery.
+const pendingWrites = new Map();
+const WRITE_DEBOUNCE = 450;
+
+function queueWrite(hole) {
+  clearTimeout(pendingWrites.get(hole));
+  pendingWrites.set(hole, setTimeout(() => flushWrite(hole), WRITE_DEBOUNCE));
+}
+
+function flushWrite(hole) {
+  if (pendingWrites.has(hole)) {
+    clearTimeout(pendingWrites.get(hole));
+    pendingWrites.delete(hole);
+  }
+  if (!state.courseId) return;
 
   // ONE setDoc with merge, never a create followed by an update. merge writes
   // the row if it is missing and patches it if it is not, as a single atomic
@@ -805,8 +897,9 @@ function commit(hole, raw) {
   //
   // Not awaited: Firestore queues writes offline and syncs them when signal
   // returns, which is exactly what you want mid-round.
+  const value = state.scores[hole];
   const scorePatch = {};
-  scorePatch[hole] = raw.trim() === '' ? deleteField() : state.scores[hole];
+  scorePatch[hole] = value === undefined ? deleteField() : value;
   setDoc(playerRef(state.courseId), {
     name: state.name.slice(0, 40),
     tee: state.tee,
@@ -814,6 +907,16 @@ function commit(hole, raw) {
     updatedAt: serverTimestamp()
   }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
 }
+
+function flushAllWrites() {
+  for (const hole of [...pendingWrites.keys()]) flushWrite(hole);
+}
+
+// Locking the phone or switching apps mid-round must not strand a score that is
+// still inside its debounce window.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushAllWrites();
+});
 
 // Pushes server values back into the inputs, but never the one being typed in.
 function syncScoreInputs() {
