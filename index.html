@@ -301,6 +301,11 @@
 
   td.sub { background: #EFEFEF; font-weight: 700; }
 
+  /* Scores that exist only on this phone. Loud on purpose: a round entered and
+     lost is worse than one never entered. */
+  #pop-save { margin-bottom: 10px; font-size: 12px; }
+  #pop-save.pop-unsaved { color: var(--par-red); font-weight: 700; }
+
   /* A hole won outright. Same red the card already uses for par, so the grid
      gains a meaning rather than a new palette. Beats banding, hence the
      !important-free specificity bump via the row class. */
@@ -959,6 +964,9 @@
     </div>
 
     <div id="pop-editing" class="editing hidden"></div>
+
+    <!-- Whether the strokes are on the server or only on this phone. -->
+    <p class="muted" id="pop-save"></p>
 
     <div id="pop-holes"></div>
 
@@ -2831,6 +2839,8 @@ function seedPopCards() {
   for (const courseId of POP_COURSE_IDS) {
     state.popCards[courseId] = Object.assign({}, popCardOf(row, courseId));
   }
+  // Freshly loaded from the server, so nothing is outstanding.
+  markPopClean();
 }
 
 /** One player's card for a course, whichever shape the document arrived in. */
@@ -2840,31 +2850,56 @@ function popCardOf(row, courseId) {
 
 let popWriteTimer = null;
 
+// Every local change bumps popEditSeq; a write that lands carries its sequence
+// into popSavedSeq. Anything in between is typed but not yet on the server.
+// A plain "is a write pending" flag was not enough: it was cleared the moment
+// the write was SENT, so a snapshot arriving before the write came back would
+// overwrite the card with the older server copy and the strokes would vanish.
+let popEditSeq = 0;
+let popSavedSeq = 0;
+let popSubError = null;
+
+const popUnsaved = () => popEditSeq !== popSavedSeq;
+const markPopClean = () => { popSavedSeq = popEditSeq; };
+
 function subscribePop() {
   unsubGlobal.push(onSnapshot(collection(db, 'popstroke'), snap => {
     state.pop = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     state.popLoaded = true;
-    // A write of ours still sitting in the debounce is newer than anything the
-    // server can say, so the card is left alone until it has landed. Without
-    // this, the echo of your own previous write would undo what you just typed.
-    if (!popWriteTimer) {
+    if (popSubError) { popSubError = null; showError($('pop-error'), ''); }
+    // Anything typed but not yet confirmed is newer than what the server can
+    // say, so the card on screen is left alone until the write has landed.
+    if (!popUnsaved()) {
       seedPopCards();
       if (document.body.dataset.page === 'page-pop') syncPopInputs();
     }
     if (document.body.dataset.page === 'page-pop') renderPop();
-  }, err => showError($('pop-error'), friendly(err))));
+  }, err => {
+    // Losing the listener means scores cannot be saved either. Say so and keep
+    // saying so - this is the one failure that looks exactly like working.
+    popSubError = err;
+    showError($('pop-error'), friendly(err));
+    showPopSaveState();
+  }));
 }
 
 function openPop() {
-  showError($('pop-error'), '');
   // Always opens on your own card. Coming back from the menu still pointed at
   // somebody else is how you enter your putts onto their scorecard.
+  const wasEnteringSomeoneElse = !!state.popTarget;
   state.popTarget = null;
-  seedPopCards();
+  // Strokes that have not reached the server yet survive a trip to the menu.
+  // Reloading over them is what made a card look empty on the way back. Only a
+  // genuine change of card reloads, because those strokes belong to somebody
+  // else and must not be carried across.
+  if (wasEnteringSomeoneElse || !popUnsaved()) seedPopCards();
   buildPopPickers();
   buildPopHoles();
   syncPopInputs();
   renderPop();
+  showPopSaveState();
+  // Anything still outstanding gets another go the moment the screen is opened.
+  if (popUnsaved()) flushPop();
   showPage('page-pop');
 }
 
@@ -3052,8 +3087,10 @@ function buildPopHoles() {
 }
 
 function commitPop(hole, raw) {
-  showError($('pop-error'), '');
-
+  // The error is deliberately NOT cleared here. Clearing it on every keystroke
+  // wiped the one message that mattered - a rules rejection would flash up and
+  // be gone before the next stroke, leaving scores that silently never saved.
+  // It is cleared when a write actually succeeds.
   const card = editingPopCard();
   if (String(raw).trim() === '') {
     delete card[hole];
@@ -3066,8 +3103,10 @@ function commitPop(hole, raw) {
     card[hole] = strokes;
   }
 
+  popEditSeq++;
   syncPopInputs();
   renderPop();
+  showPopSaveState();
   clearTimeout(popWriteTimer);
   popWriteTimer = setTimeout(flushPop, WRITE_DEBOUNCE);
 }
@@ -3075,23 +3114,67 @@ function commitPop(hole, raw) {
 function flushPop() {
   clearTimeout(popWriteTimer);
   popWriteTimer = null;
-  // Before the first snapshot lands we have not seen the card, so writing now
-  // would replace a real round with whatever is on screen.
+
   const target = popTargetId();
-  if (!state.popLoaded || !target) return;
+  if (!popUnsaved() || !target) return;
+
+  // The listener is down, so there is nothing to write to. The strokes stay on
+  // screen and the banner stays up; retrying in a loop would only bury it.
+  if (popSubError) { showPopSaveState(); return; }
+
+  // Before the first snapshot lands we have not seen the card, and writing now
+  // would replace a real round with whatever is on screen. Hold the strokes and
+  // come back for them - dropping the write here is what made scores disappear
+  // on the way to another screen.
+  if (!state.popLoaded) {
+    popWriteTimer = setTimeout(flushPop, 400);
+    showPopSaveState();
+    return;
+  }
 
   // Both courses go in one document, keyed by course. Written whole rather than
   // merged: the document is ours alone, and replacing it outright is what makes
   // clearing a hole work without a deleteField dance.
+  const seq = popEditSeq;
   const scores = {};
   for (const courseId of POP_COURSE_IDS) scores[courseId] = state.popCards[courseId] || {};
 
+  showPopSaveState('saving');
   setDoc(popRef(target), {
     // The card keeps its owner's name, never the name of whoever typed it in.
     name: String(popTargetName() || 'Player').slice(0, 40),
     scores: scores,
     updatedAt: serverTimestamp()
-  }).catch(err => showError($('pop-error'), friendly(err)));
+  }).then(() => {
+    // Only this write's strokes are confirmed. Anything typed while it was in
+    // flight is still outstanding, so it goes round again.
+    if (seq > popSavedSeq) popSavedSeq = seq;
+    showError($('pop-error'), '');
+    if (popUnsaved() && !popWriteTimer) popWriteTimer = setTimeout(flushPop, 0);
+    showPopSaveState();
+  }).catch(err => {
+    showError($('pop-error'), friendly(err));
+    showPopSaveState();
+  });
+}
+
+// Saving is invisible when it works and, until now, equally invisible when it
+// did not. This is the line that tells the difference.
+function showPopSaveState(phase) {
+  const el = $('pop-save');
+  if (!el) return;
+  if (popSubError) {
+    el.textContent = 'Not saved — these scores are only on this phone.';
+    el.className = 'muted pop-unsaved';
+    return;
+  }
+  if (phase === 'saving' || popUnsaved()) {
+    el.textContent = 'Saving…';
+    el.className = 'muted';
+    return;
+  }
+  el.textContent = popEditSeq ? 'Saved' : '';
+  el.className = 'muted';
 }
 
 function syncPopInputs() {
