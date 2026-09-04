@@ -1716,6 +1716,12 @@ function subscribeGlobal() {
 
   subscribeDrinks();
   subscribePop();
+  // Pop Stroke rebuilds its own listener when it fails, so the teardown has to
+  // reach whichever one is current rather than the one registered here.
+  unsubGlobal.push(() => {
+    clearTimeout(popRetryTimer);
+    if (unsubPop) unsubPop();
+  });
 
   for (const courseId of Object.keys(COURSES)) {
     unsubGlobal.push(onSnapshot(playersRef(courseId), snap => {
@@ -2833,9 +2839,23 @@ function editingPopCard() {
 
 /** Loads the edit buffer from whoever is being entered. */
 function seedPopCards() {
-  // Merged, so ids line up with playerId() however the documents were written.
-  const row = mergeByName(state.pop || []).find(r => r.id === popTargetId());
+  const target = popTargetId();
   state.popCards = {};
+
+  // A card still waiting to be saved is newer than the server's copy of it.
+  // Reading past the outbox here is what made a card come back blank when it
+  // had not reached the server yet.
+  const queued = popOutbox.find(job => job.target === target);
+  if (queued) {
+    for (const courseId of POP_COURSE_IDS) {
+      state.popCards[courseId] = Object.assign({}, queued.scores[courseId] || {});
+    }
+    markPopClean();
+    return;
+  }
+
+  // Merged, so ids line up with playerId() however the documents were written.
+  const row = mergeByName(state.pop || []).find(r => r.id === target);
   for (const courseId of POP_COURSE_IDS) {
     state.popCards[courseId] = Object.assign({}, popCardOf(row, courseId));
   }
@@ -2858,48 +2878,77 @@ let popWriteTimer = null;
 let popEditSeq = 0;
 let popSavedSeq = 0;
 let popSubError = null;
+// One write at a time. A write echoes straight back through onSnapshot, and the
+// listener flushes anything still outstanding - without this the echo re-enters
+// flushPop before the write has resolved and recurses until the stack blows.
+let popWriting = false;
+
+// Cards handed over for saving, keyed by whose they are. A card sits here from
+// the moment it leaves the screen until the server has taken it.
+let popOutbox = [];
 
 const popUnsaved = () => popEditSeq !== popSavedSeq;
 const markPopClean = () => { popSavedSeq = popEditSeq; };
+/** Anything typed that the server has not accepted yet, on screen or queued. */
+const popPending = () => popUnsaved() || popOutbox.length > 0;
+
+const POP_RETRY_MS = 8000;
+let unsubPop = null;
+let popRetryTimer = null;
 
 function subscribePop() {
-  unsubGlobal.push(onSnapshot(collection(db, 'popstroke'), snap => {
+  clearTimeout(popRetryTimer);
+  popRetryTimer = null;
+  if (unsubPop) { unsubPop(); unsubPop = null; }
+
+  unsubPop = onSnapshot(collection(db, 'popstroke'), snap => {
     state.pop = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     state.popLoaded = true;
     if (popSubError) { popSubError = null; showError($('pop-error'), ''); }
     // Anything typed but not yet confirmed is newer than what the server can
     // say, so the card on screen is left alone until the write has landed.
-    if (!popUnsaved()) {
+    const queuedForThisCard = popOutbox.some(job => job.target === popTargetId());
+    if (!popUnsaved() && !queuedForThisCard) {
       seedPopCards();
       if (document.body.dataset.page === 'page-pop') syncPopInputs();
     }
     if (document.body.dataset.page === 'page-pop') renderPop();
+    // The connection is up, so anything queued can go now. Never call flushPop
+    // from here: its write echoes straight back into this handler.
+    drainPopOutbox();
   }, err => {
     // Losing the listener means scores cannot be saved either. Say so and keep
     // saying so - this is the one failure that looks exactly like working.
     popSubError = err;
     showError($('pop-error'), friendly(err));
     showPopSaveState();
-  }));
+    // A listener that has errored is dead: Firestore does not revive it. Rules
+    // published while the app is open would otherwise never take hold until a
+    // full reload, which on a phone means force-quitting the home-screen app.
+    // So it is rebuilt from scratch, and keeps trying.
+    popRetryTimer = setTimeout(subscribePop, POP_RETRY_MS);
+  });
 }
 
 function openPop() {
+  // Hand over whatever is on screen BEFORE the target moves, so it is filed
+  // under its own owner rather than under whoever is about to be shown.
+  flushPop();
   // Always opens on your own card. Coming back from the menu still pointed at
   // somebody else is how you enter your putts onto their scorecard.
-  const wasEnteringSomeoneElse = !!state.popTarget;
   state.popTarget = null;
-  // Strokes that have not reached the server yet survive a trip to the menu.
-  // Reloading over them is what made a card look empty on the way back. Only a
-  // genuine change of card reloads, because those strokes belong to somebody
-  // else and must not be carried across.
-  if (wasEnteringSomeoneElse || !popUnsaved()) seedPopCards();
+  // Safe to reload now: anything unsaved is in the outbox, and seedPopCards
+  // reads from there in preference to the server.
+  seedPopCards();
   buildPopPickers();
   buildPopHoles();
   syncPopInputs();
   renderPop();
   showPopSaveState();
-  // Anything still outstanding gets another go the moment the screen is opened.
-  if (popUnsaved()) flushPop();
+  // Opening the screen is the moment to try again: if the rules were published
+  // a minute ago, this is what picks them up without waiting out the retry.
+  if (popSubError) subscribePop();
+  else drainPopOutbox();
   showPage('page-pop');
 }
 
@@ -3111,49 +3160,85 @@ function commitPop(hole, raw) {
   popWriteTimer = setTimeout(flushPop, WRITE_DEBOUNCE);
 }
 
+/** A copy of the edit buffer, detached from the live object. */
+function popCardsSnapshot() {
+  const scores = {};
+  for (const courseId of POP_COURSE_IDS) {
+    scores[courseId] = Object.assign({}, state.popCards[courseId] || {});
+  }
+  return scores;
+}
+
+/**
+ * Hands the card on screen to the outbox and marks the buffer clean.
+ *
+ * Everything that leaves the screen goes through here. The buffer holds one
+ * card at a time, so moving to another player replaces it - and any strokes
+ * still only in that buffer went with it. Worse, a retry firing after the
+ * switch wrote them to whoever was on screen by then. The outbox owns pending
+ * cards BY OWNER, so a card cannot be stranded or land on the wrong person.
+ */
 function flushPop() {
   clearTimeout(popWriteTimer);
   popWriteTimer = null;
 
   const target = popTargetId();
-  if (!popUnsaved() || !target) return;
+  if (popUnsaved() && target) {
+    enqueuePop(target, popTargetName(), popCardsSnapshot());
+    markPopClean();
+  }
+  drainPopOutbox();
+}
 
-  // The listener is down, so there is nothing to write to. The strokes stay on
-  // screen and the banner stays up; retrying in a loop would only bury it.
-  if (popSubError) { showPopSaveState(); return; }
+function enqueuePop(target, name, scores) {
+  const queued = popOutbox.find(job => job.target === target);
+  if (queued) {
+    // Whole-document writes, so the newest card simply supersedes the queued
+    // one. rev tells an in-flight write that it has been overtaken.
+    queued.name = name;
+    queued.scores = scores;
+    queued.rev++;
+  } else {
+    popOutbox.push({ target: target, name: name, scores: scores, rev: 0 });
+  }
+}
 
-  // Before the first snapshot lands we have not seen the card, and writing now
-  // would replace a real round with whatever is on screen. Hold the strokes and
-  // come back for them - dropping the write here is what made scores disappear
-  // on the way to another screen.
+function drainPopOutbox() {
+  showPopSaveState();
+  if (!popOutbox.length || popWriting) return;
+
+  // Nothing to write to yet. The cards stay queued rather than being dropped.
+  if (popSubError) return;
   if (!state.popLoaded) {
-    popWriteTimer = setTimeout(flushPop, 400);
-    showPopSaveState();
+    if (!popWriteTimer) popWriteTimer = setTimeout(drainPopOutbox, 400);
     return;
   }
 
   // Both courses go in one document, keyed by course. Written whole rather than
-  // merged: the document is ours alone, and replacing it outright is what makes
-  // clearing a hole work without a deleteField dance.
-  const seq = popEditSeq;
-  const scores = {};
-  for (const courseId of POP_COURSE_IDS) scores[courseId] = state.popCards[courseId] || {};
-
+  // merged: the document is one player's alone, and replacing it outright is
+  // what makes clearing a hole work without a deleteField dance.
+  const job = popOutbox[0];
+  const rev = job.rev;
+  popWriting = true;
   showPopSaveState('saving');
-  setDoc(popRef(target), {
+
+  setDoc(popRef(job.target), {
     // The card keeps its owner's name, never the name of whoever typed it in.
-    name: String(popTargetName() || 'Player').slice(0, 40),
-    scores: scores,
+    name: String(job.name || 'Player').slice(0, 40),
+    scores: job.scores,
     updatedAt: serverTimestamp()
   }).then(() => {
-    // Only this write's strokes are confirmed. Anything typed while it was in
-    // flight is still outstanding, so it goes round again.
-    if (seq > popSavedSeq) popSavedSeq = seq;
+    popWriting = false;
+    // Only drop it if nothing newer arrived while this was in flight.
+    if (job.rev === rev) popOutbox.splice(popOutbox.indexOf(job), 1);
     showError($('pop-error'), '');
-    if (popUnsaved() && !popWriteTimer) popWriteTimer = setTimeout(flushPop, 0);
+    if (popOutbox.length && !popWriteTimer) popWriteTimer = setTimeout(drainPopOutbox, 0);
     showPopSaveState();
   }).catch(err => {
+    popWriting = false;
+    // The job stays queued, so the strokes are not lost to a failed write.
     showError($('pop-error'), friendly(err));
+    if (!popWriteTimer) popWriteTimer = setTimeout(drainPopOutbox, 2000);
     showPopSaveState();
   });
 }
@@ -3164,11 +3249,11 @@ function showPopSaveState(phase) {
   const el = $('pop-save');
   if (!el) return;
   if (popSubError) {
-    el.textContent = 'Not saved — these scores are only on this phone.';
+    el.textContent = 'Not saved — these scores are only on this phone. Retrying…';
     el.className = 'muted pop-unsaved';
     return;
   }
-  if (phase === 'saving' || popUnsaved()) {
+  if (phase === 'saving' || popPending()) {
     el.textContent = 'Saving…';
     el.className = 'muted';
     return;
