@@ -301,6 +301,14 @@
 
   td.sub { background: #EFEFEF; font-weight: 700; }
 
+  /* A hole won outright. Same red the card already uses for par, so the grid
+     gains a meaning rather than a new palette. Beats banding, hence the
+     !important-free specificity bump via the row class. */
+  tr.r-player td.skin-win,
+  tr.r-player:nth-of-type(even) td.skin-win {
+    background: var(--par-red); color: #fff; font-weight: 700;
+  }
+
   /* The printed card's score row is read-only reference now; entry happens in
      the vertical list above it. */
   tr.r-score th.rowlab, tr.r-score td { background: #FFF8D6; font-weight: 700; }
@@ -945,9 +953,18 @@
     <div id="pop-holes"></div>
 
     <div class="card">
+      <h2>Scorecard</h2>
+      <p class="muted">Everyone side by side. A hole won outright is a skin and
+        shows in red &mdash; ties carry to nobody, and a hole stays blank until
+        everyone has putted it.</p>
+      <div class="table-scroll" id="pop-card"></div>
+      <p class="muted hidden" id="pop-card-empty">Nobody has putted yet.</p>
+    </div>
+
+    <div class="card">
       <h2>Leaderboard</h2>
       <p class="muted">Fewest strokes wins. Nothing here counts toward the trip.</p>
-      <div class="srow shead"><span>Player</span><span>Thru</span><span>Total</span></div>
+      <div class="srow shead s4"><span>Player</span><span>Thru</span><span>Skins</span><span>Total</span></div>
       <div id="pop-board"></div>
       <p class="muted hidden" id="pop-board-empty">Nobody has putted yet.</p>
     </div>
@@ -2783,7 +2800,7 @@ function subscribePop() {
       state.popScores = mine && mine.scores ? Object.assign({}, mine.scores) : {};
       if (document.body.dataset.page === 'page-pop') syncPopInputs();
     }
-    if (document.body.dataset.page === 'page-pop') renderPopBoard();
+    if (document.body.dataset.page === 'page-pop') renderPop();
   }, err => showError($('pop-error'), friendly(err))));
 }
 
@@ -2791,7 +2808,7 @@ function openPop() {
   showError($('pop-error'), '');
   buildPopHoles();
   syncPopInputs();
-  renderPopBoard();
+  renderPop();
   showPage('page-pop');
 }
 
@@ -2892,7 +2909,7 @@ function commitPop(hole, raw) {
   }
 
   syncPopInputs();
-  renderPopBoard();
+  renderPop();
   clearTimeout(popWriteTimer);
   popWriteTimer = setTimeout(flushPop, WRITE_DEBOUNCE);
 }
@@ -2935,10 +2952,11 @@ function popTally(scores) {
   return { total: total, thru: thru };
 }
 
-function renderPopBoard() {
-  const host = $('pop-board');
-  host.innerHTML = '';
-
+/**
+ * Everyone with a putt in, as one list both the grid and the board read from,
+ * so the two can never disagree about who is playing or what they have shot.
+ */
+function popPlayers() {
   const rows = mergeByName(state.pop || []);
   // Our own card may not have reached the server yet - on the first hole of a
   // round there is no document to come back - so it is added from local state
@@ -2947,14 +2965,88 @@ function renderPopBoard() {
   if (me && !rows.some(row => row.id === me)) {
     rows.push({ id: me, name: state.name, scores: state.popScores });
   }
+  return rows
+    .map(row => ({
+      id: row.id,
+      name: firstName(row.name),
+      // Our own unsent strokes should show the moment they are typed.
+      scores: row.id === me ? state.popScores : (row.scores || {})
+    }))
+    .filter(player => popTally(player.scores).thru > 0);
+}
 
-  const board = rows
-    .map(row => {
-      // Our own unsent strokes should be on the board the moment they are typed.
-      const scores = row.id === me ? state.popScores : (row.scores || {});
-      return Object.assign({ id: row.id, name: firstName(row.name) }, popTally(scores));
-    })
-    .filter(entry => entry.thru > 0)
+/**
+ * Skins, on the same terms the trip already uses: a hole is only settled once
+ * everyone playing has putted it, and a tie leaves nobody holding it. There is
+ * no carry-over - a halved hole is simply gone.
+ */
+function popSkins(players) {
+  const byHole = {};
+  const counts = {};
+  // One player is not a competition, and every hole would be a skin.
+  if (players.length < 2) return { byHole: byHole, counts: counts };
+
+  for (let hole = 1; hole <= POP_HOLES; hole++) {
+    const scores = players.map(player => player.scores[hole]);
+    if (scores.some(value => typeof value !== 'number')) continue;   // not everyone in yet
+    const best = Math.min.apply(null, scores);
+    const winners = players.filter(player => player.scores[hole] === best);
+    if (winners.length !== 1) continue;                              // tied: no skin
+    byHole[hole] = winners[0].id;
+    counts[winners[0].id] = (counts[winners[0].id] || 0) + 1;
+  }
+  return { byHole: byHole, counts: counts };
+}
+
+function renderPop() {
+  const players = popPlayers();
+  const skins = popSkins(players);
+  renderPopCard(players, skins);
+  renderPopBoard(players, skins);
+}
+
+// Everyone's card side by side. The grid is the point: a skin is only legible
+// next to what everybody else made on the same hole.
+function renderPopCard(players, skins) {
+  const host = $('pop-card');
+  host.innerHTML = '';
+  $('pop-card-empty').classList.toggle('hidden', players.length > 0);
+  if (!players.length) return;
+
+  const table = document.createElement('table');
+  table.className = 'card-table';
+
+  const head = table.insertRow();
+  head.className = 'r-hole';
+  addLabel(head, 'Hole');
+  for (let hole = 1; hole <= POP_HOLES; hole++) addCell(head, String(hole));
+  addCell(head, 'Tot', 'sub');
+
+  const me = playerId();
+  for (const player of players) {
+    const row = table.insertRow();
+    row.className = 'r-player' + (player.id === me ? ' me' : '');
+    addLabel(row, player.name);                 // player-typed: text only
+    for (let hole = 1; hole <= POP_HOLES; hole++) {
+      const value = player.scores[hole];
+      addCell(row, typeof value === 'number' ? String(value) : '',
+        skins.byHole[hole] === player.id ? 'skin-win' : '');
+    }
+    addCell(row, String(popTally(player.scores).total), 'sub');
+  }
+  host.appendChild(table);
+}
+
+function renderPopBoard(players, skins) {
+  const host = $('pop-board');
+  host.innerHTML = '';
+
+  const me = playerId();
+  const board = players
+    .map(player => Object.assign(
+      { id: player.id, name: player.name, skins: skins.counts[player.id] || 0 },
+      popTally(player.scores)
+    ))
     // Fewest strokes first. Everyone plays the same holes at the same time, so
     // a plain total reads correctly; Thru is shown alongside so a half-finished
     // card sitting at the top is obvious rather than misleading.
@@ -2964,7 +3056,7 @@ function renderPopBoard() {
 
   for (const entry of board) {
     const row = document.createElement('div');
-    row.className = 'srow' + (entry.id === me ? ' me' : '');
+    row.className = 'srow s4' + (entry.id === me ? ' me' : '');
 
     const who = document.createElement('span');
     who.textContent = entry.name;               // player-typed: text only
@@ -2972,11 +3064,15 @@ function renderPopBoard() {
     const thru = document.createElement('span');
     thru.textContent = entry.thru === POP_HOLES ? 'F' : String(entry.thru);
 
+    const skinCount = document.createElement('span');
+    skinCount.textContent = entry.skins ? String(entry.skins) : '—';
+
     const total = document.createElement('span');
     total.textContent = String(entry.total);
 
     row.appendChild(who);
     row.appendChild(thru);
+    row.appendChild(skinCount);
     row.appendChild(total);
     host.appendChild(row);
   }
