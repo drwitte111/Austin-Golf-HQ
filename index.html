@@ -950,10 +950,20 @@
 
     <div id="pop-error" class="error hidden"></div>
 
+    <!-- Two courses, two separate rounds. Everything below follows this.
+         The second picker is an admin's, for entering on someone else's
+         behalf when only one phone is doing the scoring. -->
+    <div class="clock-head">
+      <select class="pick" id="pop-course"></select>
+      <select class="pick admin-only hidden" id="pop-who"></select>
+    </div>
+
+    <div id="pop-editing" class="editing hidden"></div>
+
     <div id="pop-holes"></div>
 
     <div class="card">
-      <h2>Scorecard</h2>
+      <h2 id="pop-card-title">Scorecard</h2>
       <p class="muted">Everyone side by side. A hole won outright is a skin and
         shows in red &mdash; ties carry to nobody, and a hole stays blank until
         everyone has putted it.</p>
@@ -962,8 +972,9 @@
     </div>
 
     <div class="card">
-      <h2>Leaderboard</h2>
-      <p class="muted">Fewest strokes wins. Nothing here counts toward the trip.</p>
+      <h2 id="pop-board-title">Leaderboard</h2>
+      <p class="muted">Fewest strokes wins. Each course is its own round, and
+        nothing here counts toward the trip.</p>
       <div class="srow shead s4"><span>Player</span><span>Thru</span><span>Skins</span><span>Total</span></div>
       <div id="pop-board"></div>
       <p class="muted hidden" id="pop-board-empty">Nobody has putted yet.</p>
@@ -1661,7 +1672,8 @@ const state = {
   // Pop Stroke keeps its own slice, separate from the trip's scores above so
   // that nothing computing standings can reach it by accident.
   pop: [],
-  popScores: {},
+  popCourse: 'black',
+  popCards: {},
   popLoaded: false,
   courseId: null,
   course: null,
@@ -2779,12 +2791,52 @@ $('drink-minus').addEventListener('click', () => bumpDrink(-1));
 // standings, skins or match points reads any of this.
 const POP_HOLES = 18;
 
-// Stepping up from an empty box lands on two rather than one. A putt putt hole
-// is nearly always a two, so one tap finishes most holes and the number pad
-// never has to open - the same reasoning as starting at par on a real card.
-const POP_OPENING_TAP = 2;
+// Straight off the two printed PopStroke cards, the same way the golf courses
+// ship in this file rather than in the database. Both cards total 41 - that is
+// the checksum that says these were copied down correctly.
+const POP_COURSES = {
+  black: { name: 'Black Course', pars: [3,2,2,3,2,2,2,2,2,2,2,3,2,3,2,2,2,3] },
+  blue:  { name: 'Blue Course',  pars: [2,2,2,2,3,2,2,3,2,2,2,3,2,2,3,2,2,3] }
+};
+const POP_COURSE_IDS = Object.keys(POP_COURSES);
+
+const popPar = (courseId, hole) => POP_COURSES[courseId].pars[hole - 1];
+const popCoursePar = courseId =>
+  POP_COURSES[courseId].pars.reduce((sum, par) => sum + par, 0);
 
 const popRef = id => doc(db, 'popstroke', id || playerId());
+
+// Normally your own card. An admin can point the entry surface at somebody
+// else, for when one phone is doing the scoring for the whole group.
+function popTargetId() { return state.popTarget || playerId(); }
+
+/** The full name to write on the card being entered. Never shortened. */
+function popTargetName() {
+  if (!state.popTarget) return state.name;
+  const row = mergeByName(state.pop || []).find(r => r.id === state.popTarget);
+  return (row && row.name) || nameOf(state.popTarget);
+}
+
+/** The card being entered right now, for whoever is being entered. */
+function editingPopCard() {
+  if (!state.popCards[state.popCourse]) state.popCards[state.popCourse] = {};
+  return state.popCards[state.popCourse];
+}
+
+/** Loads the edit buffer from whoever is being entered. */
+function seedPopCards() {
+  // Merged, so ids line up with playerId() however the documents were written.
+  const row = mergeByName(state.pop || []).find(r => r.id === popTargetId());
+  state.popCards = {};
+  for (const courseId of POP_COURSE_IDS) {
+    state.popCards[courseId] = Object.assign({}, popCardOf(row, courseId));
+  }
+}
+
+/** One player's card for a course, whichever shape the document arrived in. */
+function popCardOf(row, courseId) {
+  return ((row && row.scores) || {})[courseId] || {};
+}
 
 let popWriteTimer = null;
 
@@ -2796,8 +2848,7 @@ function subscribePop() {
     // server can say, so the card is left alone until it has landed. Without
     // this, the echo of your own previous write would undo what you just typed.
     if (!popWriteTimer) {
-      const mine = state.pop.find(row => row.id === playerId());
-      state.popScores = mine && mine.scores ? Object.assign({}, mine.scores) : {};
+      seedPopCards();
       if (document.body.dataset.page === 'page-pop') syncPopInputs();
     }
     if (document.body.dataset.page === 'page-pop') renderPop();
@@ -2806,23 +2857,121 @@ function subscribePop() {
 
 function openPop() {
   showError($('pop-error'), '');
+  // Always opens on your own card. Coming back from the menu still pointed at
+  // somebody else is how you enter your putts onto their scorecard.
+  state.popTarget = null;
+  seedPopCards();
+  buildPopPickers();
   buildPopHoles();
   syncPopInputs();
   renderPop();
   showPage('page-pop');
 }
 
-// Built once and kept. The rows never change - only the numbers in them do -
-// so rebuilding on every render would throw away focus mid-entry.
+function buildPopPickers() {
+  const course = $('pop-course');
+  if (!course.dataset.built) {
+    course.dataset.built = '1';
+    for (const courseId of POP_COURSE_IDS) {
+      const opt = document.createElement('option');
+      opt.value = courseId;
+      opt.textContent = POP_COURSES[courseId].name;
+      course.appendChild(opt);
+    }
+    // Both handlers read the picker BEFORE flushing. flushPop's write echoes
+    // back through onSnapshot in the same tick, which redraws these selects -
+    // reading afterwards gets the rebuilt element, not what was just chosen.
+    course.addEventListener('change', () => {
+      const next = course.value;
+      // The pending write carries both cards, so switching cannot strand one.
+      flushPop();
+      state.popCourse = next;
+      buildPopHoles();
+      syncPopInputs();
+      renderPop();
+    });
+
+    $('pop-who').addEventListener('change', () => {
+      const next = $('pop-who').value || null;
+      // Sent before the target moves, so it lands on the card it was typed on.
+      flushPop();
+      state.popTarget = next;
+      seedPopCards();
+      syncPopInputs();
+      renderPop();
+    });
+  }
+  course.value = state.popCourse;
+  syncPopWhoPicker();
+}
+
+// Everyone who could have a card, not only those who have started one, so an
+// admin can enter for somebody who has not opened the app at all.
+function syncPopWhoPicker() {
+  const picker = $('pop-who');
+  if (!state.admin) {
+    state.popTarget = null;                  // never left pointed elsewhere
+    return;
+  }
+  if (picker.contains(document.activeElement)) return;
+
+  // Merged first, so a pop card and a roster entry for the same person collapse
+  // to the one id rather than offering the same name twice.
+  const people = {};
+  for (const person of allPlayers()) people[person.id] = firstName(person.name);
+  for (const row of mergeByName(state.pop || [])) {
+    if (!people[row.id]) people[row.id] = firstName(row.name);
+  }
+
+  const keep = state.popTarget || '';
+  picker.innerHTML = '';
+  const own = document.createElement('option');
+  own.value = '';
+  own.textContent = 'My card';
+  picker.appendChild(own);
+  Object.keys(people)
+    .filter(id => id !== playerId())
+    .sort((a, b) => String(people[a]).localeCompare(String(people[b])))
+    .forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = people[id];
+      picker.appendChild(opt);
+    });
+
+  picker.value = keep;
+  if (picker.value !== keep) {               // that person is gone
+    state.popTarget = null;
+    picker.value = '';
+    seedPopCards();
+  }
+}
+
+// Entering on someone else's behalf is easy to forget you are doing, so it
+// stays on screen the whole time - the same guard the scorecard uses.
+function syncPopEditing() {
+  const banner = $('pop-editing');
+  banner.classList.toggle('hidden', !state.popTarget);
+  banner.textContent = state.popTarget
+    ? 'Admin — entering ' + firstName(popTargetName()) + '’s card'
+    : '';
+}
+
+// Rebuilt whenever the course changes, because the par on every row changes
+// with it. Within a course the rows are left alone - only the numbers in them
+// move - so typing never loses focus to a redraw.
 function buildPopHoles() {
   const host = $('pop-holes');
-  if (host.dataset.built) return;
-  host.dataset.built = '1';
+  if (host.dataset.course === state.popCourse) return;
+  host.dataset.course = state.popCourse;
+  host.innerHTML = '';
+
+  const course = POP_COURSES[state.popCourse];
 
   const head = document.createElement('div');
   head.className = 'nine-head';
   const title = document.createElement('h3');
-  title.textContent = 'Eighteen holes';
+  title.textContent = course.name + ' · Par ' + popCoursePar(state.popCourse);
   const total = document.createElement('span');
   total.id = 'pop-total';
   total.textContent = 'Total —';
@@ -2831,6 +2980,8 @@ function buildPopHoles() {
   host.appendChild(head);
 
   for (let hole = 1; hole <= POP_HOLES; hole++) {
+    const par = popPar(state.popCourse, hole);
+
     const row = document.createElement('div');
     row.className = hole % 2 === 0 ? 'hrow alt' : 'hrow';
 
@@ -2838,10 +2989,14 @@ function buildPopHoles() {
     num.className = 'hnum';
     num.textContent = hole;
 
-    // The middle column carries the hole's name on a real card. Putt putt has
-    // nothing to put there, so it stays empty and holds the stepper out on the
-    // right rather than letting it slide in beside the number.
+    // The middle column carries the hole's name on a real course card. Here it
+    // carries the par, which is the only thing this card has to say about a
+    // hole and the number the stepper opens on.
     const gap = document.createElement('div');
+    const parLabel = document.createElement('div');
+    parLabel.className = 'hname par-head';
+    parLabel.textContent = 'Par ' + par;
+    gap.appendChild(parLabel);
 
     const entry = document.createElement('div');
     entry.className = 'hentry';
@@ -2867,10 +3022,12 @@ function buildPopHoles() {
     plus.textContent = '+';
     plus.setAttribute('aria-label', 'One more stroke on hole ' + hole);
 
+    // Stepping up from an empty box lands on par rather than one, so a hole
+    // played in par takes a single tap and the number pad never has to open.
     const step = delta => {
-      const current = state.popScores[hole];
+      const current = editingPopCard()[hole];
       const next = current === undefined
-        ? POP_OPENING_TAP
+        ? par
         : Math.min(MAX_STROKES, Math.max(MIN_STROKES, current + delta));
       input.value = next;
       commitPop(hole, String(next));
@@ -2897,15 +3054,16 @@ function buildPopHoles() {
 function commitPop(hole, raw) {
   showError($('pop-error'), '');
 
+  const card = editingPopCard();
   if (String(raw).trim() === '') {
-    delete state.popScores[hole];
+    delete card[hole];
   } else {
     const strokes = Number(raw);
     // Out-of-range digits stay on screen but are not counted or written -
     // someone typing "1" on the way to "12" should not flash a 1 onto
     // everyone else's phone.
     if (!Number.isInteger(strokes) || strokes < MIN_STROKES || strokes > MAX_STROKES) return;
-    state.popScores[hole] = strokes;
+    card[hole] = strokes;
   }
 
   syncPopInputs();
@@ -2917,30 +3075,57 @@ function commitPop(hole, raw) {
 function flushPop() {
   clearTimeout(popWriteTimer);
   popWriteTimer = null;
-  // Before the first snapshot lands we have not seen our own card, so writing
-  // now would replace a real round with whatever is on screen.
-  if (!state.popLoaded || !playerId()) return;
+  // Before the first snapshot lands we have not seen the card, so writing now
+  // would replace a real round with whatever is on screen.
+  const target = popTargetId();
+  if (!state.popLoaded || !target) return;
 
-  // Written whole rather than merged: the card is ours alone, and replacing it
-  // outright is what makes clearing a hole work without a deleteField dance.
-  setDoc(popRef(), {
-    name: String(state.name || 'Player').slice(0, 40),
-    scores: state.popScores,
+  // Both courses go in one document, keyed by course. Written whole rather than
+  // merged: the document is ours alone, and replacing it outright is what makes
+  // clearing a hole work without a deleteField dance.
+  const scores = {};
+  for (const courseId of POP_COURSE_IDS) scores[courseId] = state.popCards[courseId] || {};
+
+  setDoc(popRef(target), {
+    // The card keeps its owner's name, never the name of whoever typed it in.
+    name: String(popTargetName() || 'Player').slice(0, 40),
+    scores: scores,
     updatedAt: serverTimestamp()
   }).catch(err => showError($('pop-error'), friendly(err)));
 }
 
 function syncPopInputs() {
-  let total = 0, thru = 0;
+  const card = editingPopCard();
+  let total = 0, thru = 0, parSoFar = 0;
+
   for (const input of document.querySelectorAll('#pop-holes input.score')) {
-    const value = state.popScores[input.dataset.pop];
+    const hole = Number(input.dataset.pop);
+    const value = card[hole];
     // Leave the box alone while it is being typed into.
     if (input !== document.activeElement) input.value = value === undefined ? '' : value;
-    if (typeof value === 'number') { total += value; thru++; }
+    // Same shapes a golfer reads on the course card: circles under par, squares
+    // over it. Now that there is a par to read against, it costs nothing.
+    paintPopScore(input, popPar(state.popCourse, hole), value);
+    if (typeof value === 'number') { total += value; thru++; parSoFar += popPar(state.popCourse, hole); }
   }
+
   const label = $('pop-total');
-  if (label) label.textContent = thru ? 'Total ' + total : 'Total —';
+  if (label) {
+    label.textContent = thru
+      ? 'Total ' + total + ' · ' + formatToPar(total - parSoFar)
+      : 'Total —';
+  }
   $('pop-thru').textContent = thru ? thru + ' of ' + POP_HOLES : '';
+}
+
+function paintPopScore(input, par, value) {
+  input.classList.remove('eagle', 'birdie', 'bogey', 'double');
+  if (typeof value !== 'number') return;
+  const diff = value - par;
+  if (diff <= -2) input.classList.add('eagle');
+  else if (diff === -1) input.classList.add('birdie');
+  else if (diff === 1) input.classList.add('bogey');
+  else if (diff >= 2) input.classList.add('double');
 }
 
 function popTally(scores) {
@@ -2958,19 +3143,22 @@ function popTally(scores) {
  */
 function popPlayers() {
   const rows = mergeByName(state.pop || []);
-  // Our own card may not have reached the server yet - on the first hole of a
-  // round there is no document to come back - so it is added from local state
+  // The card being entered may not have reached the server yet - on the first
+  // hole there is no document to come back - so it is added from local state
   // rather than waiting for the echo.
-  const me = playerId();
-  if (me && !rows.some(row => row.id === me)) {
-    rows.push({ id: me, name: state.name, scores: state.popScores });
+  const target = popTargetId();
+  if (target && !rows.some(row => row.id === target)) {
+    rows.push({ id: target, name: popTargetName() });
   }
+
   return rows
     .map(row => ({
       id: row.id,
       name: firstName(row.name),
-      // Our own unsent strokes should show the moment they are typed.
-      scores: row.id === me ? state.popScores : (row.scores || {})
+      // Unsent strokes belong to whoever is being entered, and should show the
+      // moment they are typed. Only the course on screen is ranked: the two
+      // cards are separate rounds.
+      scores: row.id === target ? editingPopCard() : popCardOf(row, state.popCourse)
     }))
     .filter(player => popTally(player.scores).thru > 0);
 }
@@ -2999,6 +3187,12 @@ function popSkins(players) {
 }
 
 function renderPop() {
+  const courseName = POP_COURSES[state.popCourse].name;
+  $('pop-card-title').textContent = 'Scorecard · ' + courseName;
+  $('pop-board-title').textContent = 'Leaderboard · ' + courseName;
+  syncPopWhoPicker();
+  syncPopEditing();
+
   const players = popPlayers();
   const skins = popSkins(players);
   renderPopCard(players, skins);
@@ -3021,6 +3215,16 @@ function renderPopCard(players, skins) {
   addLabel(head, 'Hole');
   for (let hole = 1; hole <= POP_HOLES; hole++) addCell(head, String(hole));
   addCell(head, 'Tot', 'sub');
+
+  // The printed card's par row, so a 3 can be read as good or bad at a glance
+  // without counting back to the hole list above.
+  const parRow = table.insertRow();
+  parRow.className = 'r-par';
+  addLabel(parRow, 'Par');
+  for (let hole = 1; hole <= POP_HOLES; hole++) {
+    addCell(parRow, String(popPar(state.popCourse, hole)));
+  }
+  addCell(parRow, String(popCoursePar(state.popCourse)));
 
   const me = playerId();
   for (const player of players) {

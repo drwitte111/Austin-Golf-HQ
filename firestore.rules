@@ -76,11 +76,14 @@ service cloud.firestore {
     match /popstroke/{playerId} {
       allow read: if true;
 
+      // scores is keyed by course - {black: {1: 2, ...}, blue: {...}} - so the
+      // cap here counts courses, not holes. Rules cannot reach inside a nested
+      // map to size it, so the per-course hole count is the client's job.
       allow create, update: if request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 40
         && request.resource.data.scores is map
-        && request.resource.data.scores.size() <= 18;
+        && request.resource.data.scores.size() <= 4;
 
       allow delete: if true;
     }
