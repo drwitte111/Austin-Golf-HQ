@@ -308,7 +308,9 @@
   /* VERTICAL HOLE LIST - the entry surface, dressed as the printed card.
      Same paper, same ink, same black nine bars and red par, just running down
      the page instead of across it. */
-  #holelist {
+  /* Pop Stroke borrows the same surface: it is the same act of entering a
+     number per hole, so it should not look like a different app. */
+  #holelist, #pop-holes {
     background: var(--card-paper);
     color: var(--card-ink);
     border: 2px solid var(--card-ink);
@@ -851,6 +853,9 @@
         <button class="menu-btn" data-go="stats" data-art="stats">
           <strong>Stats</strong><span>Standings, skins, contests</span>
         </button>
+        <button class="menu-btn" data-go="pop">
+          <strong>Pop Stroke</strong><span>Putt putt, just for fun</span>
+        </button>
         <button class="menu-btn" data-go="course" data-course="world-tour-golf" data-art="world-tour">
           <strong>World Tour Golf</strong><span>Enter your scorecard</span>
         </button>
@@ -920,6 +925,31 @@
       <h2>By day</h2>
       <div class="table-scroll" id="drinks-history"></div>
       <p class="muted hidden" id="drinks-history-empty">No days recorded yet.</p>
+    </div>
+  </section>
+
+  <!-- POP STROKE -->
+  <!-- Putt putt on the side. Kept deliberately apart from the trip: its own
+       collection, its own page, and nothing that computes standings, skins or
+       match points ever reads it. No par, no tees, no duos - eighteen holes and
+       a number on each. -->
+  <section class="page" id="page-pop">
+    <div class="topbar">
+      <button class="ghost" data-back>&larr; Menu</button>
+      <h2>Pop Stroke</h2>
+      <span class="who" id="pop-thru"></span>
+    </div>
+
+    <div id="pop-error" class="error hidden"></div>
+
+    <div id="pop-holes"></div>
+
+    <div class="card">
+      <h2>Leaderboard</h2>
+      <p class="muted">Fewest strokes wins. Nothing here counts toward the trip.</p>
+      <div class="srow shead"><span>Player</span><span>Thru</span><span>Total</span></div>
+      <div id="pop-board"></div>
+      <p class="muted hidden" id="pop-board-empty">Nobody has putted yet.</p>
     </div>
   </section>
 
@@ -1611,6 +1641,11 @@ const state = {
   clockDay: null,
   clockPick: null,
   clockWho: '',
+  // Pop Stroke keeps its own slice, separate from the trip's scores above so
+  // that nothing computing standings can reach it by accident.
+  pop: [],
+  popScores: {},
+  popLoaded: false,
   courseId: null,
   course: null,
   holes: [],
@@ -1643,6 +1678,7 @@ function subscribeGlobal() {
   }, err => showError($('course-error'), friendly(err))));
 
   subscribeDrinks();
+  subscribePop();
 
   for (const courseId of Object.keys(COURSES)) {
     unsubGlobal.push(onSnapshot(playersRef(courseId), snap => {
@@ -1864,6 +1900,7 @@ $('login-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('log
 function enterMenu() {
   // Send anything still sitting in a debounce window before we drop the course.
   flushAllWrites();
+  flushPop();
   adminCourseId = null;
   state.editingOther = false;
   $('menu-name').textContent = firstName(state.name);
@@ -1896,6 +1933,7 @@ for (const btn of document.querySelectorAll('.menu-btn')) {
     else if (btn.dataset.go === 'overview') openOverview();
     else if (btn.dataset.go === 'stats') openStats();
     else if (btn.dataset.go === 'drinks') openDrinks();
+    else if (btn.dataset.go === 'pop') openPop();
     else { $('soon-title').textContent = btn.dataset.title; showPage('page-soon'); }
   });
 }
@@ -2380,9 +2418,9 @@ function flushDrinks() {
   }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
 }
 
-// A tab going away mid-count must not strand the tally.
+// A tab going away mid-count must not strand the tally, or a putt.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') flushDrinks();
+  if (document.visibilityState === 'hidden') { flushDrinks(); flushPop(); }
 });
 
 function renderDrinks() {
@@ -2715,6 +2753,234 @@ $('clock-day').addEventListener('change', e => {
 
 $('drink-plus').addEventListener('click', () => bumpDrink(1));
 $('drink-minus').addEventListener('click', () => bumpDrink(-1));
+
+// ---------------------------------------------------------------------------
+// POP STROKE
+// ---------------------------------------------------------------------------
+// Putt putt, run alongside the trip and kept out of it. One document per player
+// in its own collection, eighteen holes, lowest total wins. Nothing in stats,
+// standings, skins or match points reads any of this.
+const POP_HOLES = 18;
+
+// Stepping up from an empty box lands on two rather than one. A putt putt hole
+// is nearly always a two, so one tap finishes most holes and the number pad
+// never has to open - the same reasoning as starting at par on a real card.
+const POP_OPENING_TAP = 2;
+
+const popRef = id => doc(db, 'popstroke', id || playerId());
+
+let popWriteTimer = null;
+
+function subscribePop() {
+  unsubGlobal.push(onSnapshot(collection(db, 'popstroke'), snap => {
+    state.pop = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    state.popLoaded = true;
+    // A write of ours still sitting in the debounce is newer than anything the
+    // server can say, so the card is left alone until it has landed. Without
+    // this, the echo of your own previous write would undo what you just typed.
+    if (!popWriteTimer) {
+      const mine = state.pop.find(row => row.id === playerId());
+      state.popScores = mine && mine.scores ? Object.assign({}, mine.scores) : {};
+      if (document.body.dataset.page === 'page-pop') syncPopInputs();
+    }
+    if (document.body.dataset.page === 'page-pop') renderPopBoard();
+  }, err => showError($('pop-error'), friendly(err))));
+}
+
+function openPop() {
+  showError($('pop-error'), '');
+  buildPopHoles();
+  syncPopInputs();
+  renderPopBoard();
+  showPage('page-pop');
+}
+
+// Built once and kept. The rows never change - only the numbers in them do -
+// so rebuilding on every render would throw away focus mid-entry.
+function buildPopHoles() {
+  const host = $('pop-holes');
+  if (host.dataset.built) return;
+  host.dataset.built = '1';
+
+  const head = document.createElement('div');
+  head.className = 'nine-head';
+  const title = document.createElement('h3');
+  title.textContent = 'Eighteen holes';
+  const total = document.createElement('span');
+  total.id = 'pop-total';
+  total.textContent = 'Total —';
+  head.appendChild(title);
+  head.appendChild(total);
+  host.appendChild(head);
+
+  for (let hole = 1; hole <= POP_HOLES; hole++) {
+    const row = document.createElement('div');
+    row.className = hole % 2 === 0 ? 'hrow alt' : 'hrow';
+
+    const num = document.createElement('div');
+    num.className = 'hnum';
+    num.textContent = hole;
+
+    // The middle column carries the hole's name on a real card. Putt putt has
+    // nothing to put there, so it stays empty and holds the stepper out on the
+    // right rather than letting it slide in beside the number.
+    const gap = document.createElement('div');
+
+    const entry = document.createElement('div');
+    entry.className = 'hentry';
+
+    const minus = document.createElement('button');
+    minus.className = 'step';
+    minus.type = 'button';
+    minus.textContent = '−';
+    minus.setAttribute('aria-label', 'One fewer stroke on hole ' + hole);
+
+    const input = document.createElement('input');
+    input.className = 'score';
+    input.type = 'number';
+    input.inputMode = 'numeric';
+    input.min = MIN_STROKES;
+    input.max = MAX_STROKES;
+    input.dataset.pop = hole;
+    input.setAttribute('aria-label', 'Strokes on hole ' + hole);
+
+    const plus = document.createElement('button');
+    plus.className = 'step';
+    plus.type = 'button';
+    plus.textContent = '+';
+    plus.setAttribute('aria-label', 'One more stroke on hole ' + hole);
+
+    const step = delta => {
+      const current = state.popScores[hole];
+      const next = current === undefined
+        ? POP_OPENING_TAP
+        : Math.min(MAX_STROKES, Math.max(MIN_STROKES, current + delta));
+      input.value = next;
+      commitPop(hole, String(next));
+    };
+    minus.addEventListener('click', () => step(-1));
+    plus.addEventListener('click', () => step(1));
+
+    input.addEventListener('input', () => commitPop(hole, input.value));
+    // Moving off a hole means you are done with it - send it now rather than
+    // waiting out the debounce.
+    input.addEventListener('blur', flushPop);
+
+    entry.appendChild(minus);
+    entry.appendChild(input);
+    entry.appendChild(plus);
+
+    row.appendChild(num);
+    row.appendChild(gap);
+    row.appendChild(entry);
+    host.appendChild(row);
+  }
+}
+
+function commitPop(hole, raw) {
+  showError($('pop-error'), '');
+
+  if (String(raw).trim() === '') {
+    delete state.popScores[hole];
+  } else {
+    const strokes = Number(raw);
+    // Out-of-range digits stay on screen but are not counted or written -
+    // someone typing "1" on the way to "12" should not flash a 1 onto
+    // everyone else's phone.
+    if (!Number.isInteger(strokes) || strokes < MIN_STROKES || strokes > MAX_STROKES) return;
+    state.popScores[hole] = strokes;
+  }
+
+  syncPopInputs();
+  renderPopBoard();
+  clearTimeout(popWriteTimer);
+  popWriteTimer = setTimeout(flushPop, WRITE_DEBOUNCE);
+}
+
+function flushPop() {
+  clearTimeout(popWriteTimer);
+  popWriteTimer = null;
+  // Before the first snapshot lands we have not seen our own card, so writing
+  // now would replace a real round with whatever is on screen.
+  if (!state.popLoaded || !playerId()) return;
+
+  // Written whole rather than merged: the card is ours alone, and replacing it
+  // outright is what makes clearing a hole work without a deleteField dance.
+  setDoc(popRef(), {
+    name: String(state.name || 'Player').slice(0, 40),
+    scores: state.popScores,
+    updatedAt: serverTimestamp()
+  }).catch(err => showError($('pop-error'), friendly(err)));
+}
+
+function syncPopInputs() {
+  let total = 0, thru = 0;
+  for (const input of document.querySelectorAll('#pop-holes input.score')) {
+    const value = state.popScores[input.dataset.pop];
+    // Leave the box alone while it is being typed into.
+    if (input !== document.activeElement) input.value = value === undefined ? '' : value;
+    if (typeof value === 'number') { total += value; thru++; }
+  }
+  const label = $('pop-total');
+  if (label) label.textContent = thru ? 'Total ' + total : 'Total —';
+  $('pop-thru').textContent = thru ? thru + ' of ' + POP_HOLES : '';
+}
+
+function popTally(scores) {
+  let total = 0, thru = 0;
+  for (let hole = 1; hole <= POP_HOLES; hole++) {
+    const value = (scores || {})[hole];
+    if (typeof value === 'number') { total += value; thru++; }
+  }
+  return { total: total, thru: thru };
+}
+
+function renderPopBoard() {
+  const host = $('pop-board');
+  host.innerHTML = '';
+
+  const rows = mergeByName(state.pop || []);
+  // Our own card may not have reached the server yet - on the first hole of a
+  // round there is no document to come back - so it is added from local state
+  // rather than waiting for the echo.
+  const me = playerId();
+  if (me && !rows.some(row => row.id === me)) {
+    rows.push({ id: me, name: state.name, scores: state.popScores });
+  }
+
+  const board = rows
+    .map(row => {
+      // Our own unsent strokes should be on the board the moment they are typed.
+      const scores = row.id === me ? state.popScores : (row.scores || {});
+      return Object.assign({ id: row.id, name: firstName(row.name) }, popTally(scores));
+    })
+    .filter(entry => entry.thru > 0)
+    // Fewest strokes first. Everyone plays the same holes at the same time, so
+    // a plain total reads correctly; Thru is shown alongside so a half-finished
+    // card sitting at the top is obvious rather than misleading.
+    .sort((a, b) => a.total - b.total || b.thru - a.thru || a.name.localeCompare(b.name));
+
+  $('pop-board-empty').classList.toggle('hidden', board.length > 0);
+
+  for (const entry of board) {
+    const row = document.createElement('div');
+    row.className = 'srow' + (entry.id === me ? ' me' : '');
+
+    const who = document.createElement('span');
+    who.textContent = entry.name;               // player-typed: text only
+
+    const thru = document.createElement('span');
+    thru.textContent = entry.thru === POP_HOLES ? 'F' : String(entry.thru);
+
+    const total = document.createElement('span');
+    total.textContent = String(entry.total);
+
+    row.appendChild(who);
+    row.appendChild(thru);
+    row.appendChild(total);
+    host.appendChild(row);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // STATS
