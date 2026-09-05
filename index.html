@@ -1967,7 +1967,6 @@ $('login-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('log
 function enterMenu() {
   // Send anything still sitting in a debounce window before we drop the course.
   flushAllWrites();
-  flushPop();
   adminCourseId = null;
   state.editingOther = false;
   $('menu-name').textContent = firstName(state.name);
@@ -2490,7 +2489,7 @@ function flushDrinks() {
 
 // A tab going away mid-count must not strand the tally, or a putt.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { flushDrinks(); flushPop(); }
+  if (document.visibilityState === 'hidden') flushDrinks();
 });
 
 function renderDrinks() {
