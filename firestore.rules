@@ -69,25 +69,6 @@ service cloud.firestore {
       allow delete: if true;
     }
 
-    // Pop Stroke: putt putt played on the side, one document per person. It
-    // sits in its own collection rather than as another field on a player
-    // because none of it belongs to the trip - it is not scored against par,
-    // and no standing, skin or match point is computed from it.
-    match /popstroke/{playerId} {
-      allow read: if true;
-
-      // scores is keyed by course - {black: {1: 2, ...}, blue: {...}} - so the
-      // cap here counts courses, not holes. Rules cannot reach inside a nested
-      // map to size it, so the per-course hole count is the client's job.
-      allow create, update: if request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 40
-        && request.resource.data.scores is map
-        && request.resource.data.scores.size() <= 4;
-
-      allow delete: if true;
-    }
-
     // Nothing else in this project is used by the app.
     match /{document=**} {
       allow read, write: if false;
