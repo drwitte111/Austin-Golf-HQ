@@ -1709,6 +1709,10 @@ const state = {
   rosters: {},
   drinks: [],
   drinkLocal: null,
+  // Which drink-day drinkLocal is a count OF. Without this the count is just
+  // "my number", and at 5am it silently becomes the new day's opening total.
+  drinkLocalDay: null,
+  drinkDirty: false,
   drinkLog: null,
   drinksLoaded: false,
   clockDay: null,
@@ -2444,11 +2448,28 @@ function openDrinks() {
 
 // Tapping is local and instant; the write is coalesced so a quick run of taps
 // is one round trip rather than five.
+// Drops a pending count once the day has turned over under it. The count and
+// its log belong to the day they were entered on, not to whatever day it is
+// when they are next looked at.
+function clearStaleDrinkDay() {
+  const today = dayOf(new Date());
+  if (state.drinkLocalDay && state.drinkLocalDay !== today) {
+    flushDrinks();                       // land it on the day it belongs to
+    state.drinkLocal = null;
+    state.drinkLocalDay = null;
+    state.drinkLog = null;
+    state.drinkDirty = false;
+    return true;
+  }
+  return false;
+}
+
 function bumpDrink(delta) {
   // Tapping before the first snapshot lands would treat an unread account as
   // empty: the count would restart at one and the write would wipe the
   // timeline. The buttons are disabled until then; this is the backstop.
   if (!state.drinksLoaded) return;
+  clearStaleDrinkDay();
   const day = dayOf(new Date());
   const mine = myDrinkDoc();
   const current = state.drinkLocal !== null && state.drinkLocal !== undefined
@@ -2458,6 +2479,8 @@ function bumpDrink(delta) {
   if (next === current) return;
 
   state.drinkLocal = next;
+  state.drinkLocalDay = day;
+  state.drinkDirty = true;
   state.drinkLog = (state.drinkLog || (mine && mine.log) || []).slice();
   if (delta > 0) {
     state.drinkLog.push({ t: Date.now(), day: day });
@@ -2477,22 +2500,33 @@ function bumpDrink(delta) {
 function flushDrinks() {
   clearTimeout(drinkWriteTimer);
   if (state.drinkLocal === null || state.drinkLocal === undefined) return;
-  const day = dayOf(new Date());
+  // Nothing typed since the last write. This used to fire anyway on every tab
+  // hide, which is how a count sat on for hours got stamped onto a new day.
+  if (!state.drinkDirty) return;
+
+  // The day the count is a count OF - not the day it happens to be now. A tap
+  // at 4:59 flushed at 5:01 still belongs to the day before.
+  const day = state.drinkLocalDay || dayOf(new Date());
   const days = {};
   days[day] = state.drinkLocal;
   setDoc(drinkRef(), {
     name: String(state.name || 'Player').slice(0, 40),
     days: days,
     log: state.drinkLog || []
-  }, { merge: true }).catch(err => showError($('course-error'), friendly(err)));
+  }, { merge: true })
+    .then(() => { state.drinkDirty = false; })
+    .catch(err => showError($('course-error'), friendly(err)));
 }
 
 // A tab going away mid-count must not strand the tally, or a putt.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') flushDrinks();
+  if (document.visibilityState === 'hidden') { flushDrinks(); return; }
+  // Back from the background - which is where a phone spends the rollover.
+  if (clearStaleDrinkDay() && document.body.dataset.page === 'page-drinks') renderDrinks();
 });
 
 function renderDrinks() {
+  clearStaleDrinkDay();
   const today = dayOf(new Date());
   const rows = drinkRows();
   const mine = myDrinkDoc();
